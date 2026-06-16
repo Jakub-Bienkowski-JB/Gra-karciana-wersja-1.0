@@ -88,15 +88,71 @@ const CARD_IMAGES = {
 
 const app = document.querySelector("#app");
 const modal = document.querySelector("#modal");
+const STORAGE_KEY = "gra-karciana-v1-state";
 let uid = 1;
 let selectedBuilderPlayer = 0;
 let selectedHandUid = null;
 let game = null;
+let builderFilters = {
+  query: "",
+  tag: "all",
+  sort: "id",
+};
 
 const deckDraft = [
   { main: new Set(), extra: new Set() },
   { main: new Set(), extra: new Set() },
 ];
+
+const TAG_LABELS = {
+  all: "Wszystkie",
+  play: "Zagranie",
+  passive: "Pasywka",
+  destroy: "Zniszczenie",
+  discard: "Odrzucenie",
+  hand: "Ręka",
+  special: "Specjalne",
+};
+
+const LOCATION_RULES = {
+  academy: {
+    name: "Akademia Progu",
+    text: "Karty o progu 1 mają tutaj +1 mocy.",
+    bonus(card) {
+      return card.baseThreshold === 1 ? 1 : 0;
+    },
+  },
+  foundry: {
+    name: "Kuźnia Kolosów",
+    text: "Karty o mocy bazowej 4 lub większej mają tutaj +1 mocy.",
+    bonus(card) {
+      return card.basePower >= 4 ? 1 : 0;
+    },
+  },
+  ruins: {
+    name: "Ciche Ruiny",
+    text: "Wyciszone karty nie tracą tutaj mocy bazowej, ale nie dostają premii.",
+    bonus() {
+      return 0;
+    },
+  },
+  grove: {
+    name: "Szmaragdowy Gaj",
+    text: "Tokeny mają tutaj +1 mocy.",
+    bonus(card) {
+      return card.token ? 1 : 0;
+    },
+  },
+  arena: {
+    name: "Arena Królowej",
+    text: "Pierwsza karta każdego gracza w tej lokacji ma +2 mocy.",
+    bonus(card, locationCards) {
+      return locationCards[0]?.uid === card.uid ? 2 : 0;
+    },
+  },
+};
+
+const LOCATION_POOL = Object.keys(LOCATION_RULES);
 
 function cloneDef(def, owner) {
   return {
@@ -144,10 +200,46 @@ function opponent(index) {
   return index === 0 ? 1 : 0;
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function primaryTag(card) {
+  return card.tags.find((tag) => tag !== "hand") || card.tags[0] || "special";
+}
+
+function renderTagBadge(card) {
+  const tag = primaryTag(card);
+  return `<span class="tag tag-${tag}">${TAG_LABELS[tag] || "Efekt"}</span>`;
+}
+
+function filteredCards() {
+  const query = builderFilters.query.trim().toLowerCase();
+  return CARDS.filter((card) => {
+    const matchesQuery = !query || `${card.name} ${card.text}`.toLowerCase().includes(query);
+    const matchesTag = builderFilters.tag === "all" || card.tags.includes(builderFilters.tag);
+    return matchesQuery && matchesTag;
+  }).sort((a, b) => {
+    if (builderFilters.sort === "threshold") return a.threshold - b.threshold || a.id - b.id;
+    if (builderFilters.sort === "power") return b.power - a.power || a.id - b.id;
+    if (builderFilters.sort === "name") return a.name.localeCompare(b.name, "pl");
+    return a.id - b.id;
+  });
+}
+
+function cardsFromSet(set) {
+  return [...set].map((id) => CARDS.find((card) => card.id === id)).filter(Boolean);
+}
+
 function renderBuilder() {
   const p = deckDraft[selectedBuilderPlayer];
   const validA = deckDraft[0].main.size === 12 && deckDraft[0].extra.size === 3;
   const validB = deckDraft[1].main.size === 12 && deckDraft[1].extra.size === 3;
+  const visibleCards = filteredCards();
   app.innerHTML = `
     <section class="screen">
       <div class="topbar">
@@ -155,7 +247,10 @@ function renderBuilder() {
           <h1>Gra karciana wersja 1.0</h1>
           <span>Prototyp lokalnej gry 1v1</span>
         </div>
-        <button id="startGame" ${validA && validB ? "" : "disabled"}>Rozpocznij mecz</button>
+        <div class="actions">
+          <button id="quickMatch">Szybki mecz</button>
+          <button id="startGame" class="primary" ${validA && validB ? "" : "disabled"}>Rozpocznij mecz</button>
+        </div>
       </div>
       <div class="builder">
         <aside class="builder-side">
@@ -172,9 +267,38 @@ function renderBuilder() {
             <button id="sampleDecks">Szybkie talie testowe</button>
             <button id="clearDeck">Wyczyść gracza</button>
           </div>
+          <section class="deck-preview">
+            <h2>Aktualna talia</h2>
+            ${renderDeckSection("Podstawowe", cardsFromSet(p.main), 12)}
+            ${renderDeckSection("Dodatkowe", cardsFromSet(p.extra), 3)}
+          </section>
         </aside>
-        <section class="library">
-          ${CARDS.map((card) => renderLibraryCard(card, p)).join("")}
+        <section class="library-wrap">
+          <div class="filters panel">
+            <label>
+              Szukaj
+              <input id="cardSearch" type="search" value="${escapeHtml(builderFilters.query)}" placeholder="Nazwa lub opis karty" />
+            </label>
+            <label>
+              Efekt
+              <select id="tagFilter">
+                ${Object.entries(TAG_LABELS).map(([value, label]) => `<option value="${value}" ${builderFilters.tag === value ? "selected" : ""}>${label}</option>`).join("")}
+              </select>
+            </label>
+            <label>
+              Sortuj
+              <select id="sortCards">
+                <option value="id" ${builderFilters.sort === "id" ? "selected" : ""}>Numer</option>
+                <option value="threshold" ${builderFilters.sort === "threshold" ? "selected" : ""}>Najniższy próg</option>
+                <option value="power" ${builderFilters.sort === "power" ? "selected" : ""}>Największa moc</option>
+                <option value="name" ${builderFilters.sort === "name" ? "selected" : ""}>Nazwa</option>
+              </select>
+            </label>
+            <span class="meta">${visibleCards.length} / ${CARDS.length} kart</span>
+          </div>
+          <section class="library">
+            ${visibleCards.map((card) => renderLibraryCard(card, p)).join("") || "<p class='hint'>Brak kart dla wybranych filtrów.</p>"}
+          </section>
         </section>
       </div>
     </section>
@@ -187,13 +311,51 @@ function renderBuilder() {
   });
   app.querySelectorAll("[data-add-main]").forEach((btn) => btn.addEventListener("click", () => toggleDeckCard(Number(btn.dataset.addMain), "main")));
   app.querySelectorAll("[data-add-extra]").forEach((btn) => btn.addEventListener("click", () => toggleDeckCard(Number(btn.dataset.addExtra), "extra")));
+  app.querySelectorAll("[data-remove-card]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.dataset.removeCard);
+      deckDraft[selectedBuilderPlayer].main.delete(id);
+      deckDraft[selectedBuilderPlayer].extra.delete(id);
+      saveState();
+      renderBuilder();
+    });
+  });
   app.querySelector("#clearDeck").addEventListener("click", () => {
     deckDraft[selectedBuilderPlayer].main.clear();
     deckDraft[selectedBuilderPlayer].extra.clear();
+    saveState();
     renderBuilder();
   });
-  app.querySelector("#sampleDecks").addEventListener("click", makeSampleDecks);
+  app.querySelector("#sampleDecks").addEventListener("click", () => makeSampleDecks(false));
+  app.querySelector("#quickMatch").addEventListener("click", () => makeSampleDecks(true));
   app.querySelector("#startGame").addEventListener("click", startMatch);
+  app.querySelector("#cardSearch").addEventListener("input", (event) => {
+    const query = event.target.value;
+    builderFilters.query = query;
+    renderBuilder();
+    const input = app.querySelector("#cardSearch");
+    input.focus();
+    input.setSelectionRange(query.length, query.length);
+  });
+  app.querySelector("#tagFilter").addEventListener("change", (event) => {
+    builderFilters.tag = event.target.value;
+    renderBuilder();
+  });
+  app.querySelector("#sortCards").addEventListener("change", (event) => {
+    builderFilters.sort = event.target.value;
+    renderBuilder();
+  });
+}
+
+function renderDeckSection(title, cards, max) {
+  return `
+    <div class="deck-section">
+      <strong>${title} <span class="meta">${cards.length}/${max}</span></strong>
+      <div class="deck-list">
+        ${cards.map((card) => `<button data-remove-card="${card.id}" title="Usuń z talii">${card.name}</button>`).join("") || "<span class='hint'>Brak kart.</span>"}
+      </div>
+    </div>
+  `;
 }
 
 function renderLibraryCard(card, draft) {
@@ -204,7 +366,10 @@ function renderLibraryCard(card, draft) {
   return `
     <article class="card ${inMain || inExtra ? "selected" : ""}">
       ${renderCardArt(card.id, card.name)}
-      <h3>${card.id}. ${card.name}</h3>
+      <div class="card-heading">
+        <h3>${card.id}. ${card.name}</h3>
+        ${renderTagBadge(card)}
+      </div>
       <div class="stats">
         <span class="pill threshold">Próg ${card.threshold}</span>
         <span class="pill power">Moc ${card.power}</span>
@@ -223,18 +388,25 @@ function toggleDeckCard(id, type) {
   const set = draft[type];
   if (set.has(id)) set.delete(id);
   else set.add(id);
+  saveState();
   renderBuilder();
 }
 
-function makeSampleDecks() {
+function makeSampleDecks(startImmediately = false) {
   deckDraft[0].main = new Set([1, 3, 5, 6, 10, 12, 16, 20, 22, 29, 34, 44]);
   deckDraft[0].extra = new Set([14, 42, 49]);
   deckDraft[1].main = new Set([2, 7, 11, 15, 17, 21, 25, 26, 30, 32, 37, 43]);
   deckDraft[1].extra = new Set([8, 39, 50]);
+  saveState();
+  if (startImmediately) {
+    startMatch();
+    return;
+  }
   renderBuilder();
 }
 
 function startMatch() {
+  localStorage.removeItem(STORAGE_KEY);
   game = {
     screen: "game",
     matchRound: 1,
@@ -243,6 +415,7 @@ function startMatch() {
     starter: 0,
     scores: [0, 0],
     logs: [],
+    locations: [],
     players: [createMatchPlayer(0), createMatchPlayer(1)],
   };
   game.starter = game.turnPlayer;
@@ -271,6 +444,7 @@ function createMatchPlayer(index) {
 function startRound() {
   selectedHandUid = null;
   game.roundTurn = 1;
+  game.locations = shuffle(LOCATION_POOL).slice(0, 3);
   game.turnPlayer = game.matchRound === 1 ? game.starter : opponent(game.starter);
   if (game.matchRound % 2 === 1) game.turnPlayer = game.starter;
   else game.turnPlayer = opponent(game.starter);
@@ -302,6 +476,40 @@ function beginTurn() {
   renderGame();
 }
 
+function currentHandCard() {
+  if (!game || !selectedHandUid) return null;
+  return game.players[game.turnPlayer].hand.find((card) => card.uid === selectedHandUid) || null;
+}
+
+function locationRule(loc) {
+  return LOCATION_RULES[game.locations?.[loc]] || { name: `Lokacja ${loc + 1}`, text: "Brak specjalnej reguły.", bonus: () => 0 };
+}
+
+function canPlayTo(targetPlayer, loc, card = currentHandCard()) {
+  if (!card || !canPlayCard(game.turnPlayer, card)) return false;
+  if (targetPlayer !== game.turnPlayer && card.defId !== 25) return false;
+  return hasSpace(targetPlayer, loc, card);
+}
+
+function playPreview() {
+  const card = currentHandCard();
+  if (!card) return `<p class="hint">Wybierz kartę z ręki, aby zobaczyć możliwe lokacje i podgląd zagrania.</p>`;
+  if (!canPlayCard(game.turnPlayer, card)) {
+    return `<p class="danger">${card.name} nie może zostać zagrana w tej turze. Wymagany próg: ${effectiveThreshold(game.turnPlayer, card)}, aktualna tura: ${game.roundTurn}.</p>`;
+  }
+  const ownTargets = [0, 1, 2].filter((loc) => canPlayTo(game.turnPlayer, loc, card)).map((loc) => `L${loc + 1}`).join(", ") || "brak";
+  const enemyTargets = card.defId === 25 ? [0, 1, 2].filter((loc) => canPlayTo(opponent(game.turnPlayer), loc, card)).map((loc) => `L${loc + 1}`).join(", ") || "brak" : "niedostępne";
+  return `
+    <div class="preview-card">
+      <strong>${card.name}</strong>
+      <span class="meta">Próg ${effectiveThreshold(game.turnPlayer, card)} · Moc ${card.basePower} · ${TAG_LABELS[primaryTag(card)] || "Efekt"}</span>
+      <p>${card.text}</p>
+      <p><strong>Twoje lokacje:</strong> ${ownTargets}</p>
+      ${card.defId === 25 ? `<p><strong>Lokacje przeciwnika:</strong> ${enemyTargets}</p>` : ""}
+    </div>
+  `;
+}
+
 function drawCard(player, countForTurn = true) {
   const p = game.players[player];
   if (!p.deck.length) return null;
@@ -327,13 +535,18 @@ function renderGame() {
   const playsLeft = tp.playsLeft;
   app.innerHTML = `
     <section class="screen">
-      <div class="topbar">
+      <div class="topbar gamebar">
         <div class="brand">
           <h1>Gra karciana wersja 1.0</h1>
           <span>Partia ${game.matchRound}/4, tura ${game.roundTurn}/6, ruch: ${playerName(game.turnPlayer)}</span>
         </div>
+        <div class="turn-strip">
+          <span>Zagrania <strong>${playsLeft}</strong></span>
+          <span>Talia <strong>${tp.deck.length}</strong></span>
+          <span>Cmentarz <strong>${tp.grave.length}</strong></span>
+        </div>
         <div class="actions">
-          <button id="endTurn">Zakończ turę</button>
+          <button id="endTurn" class="primary">Zakończ turę</button>
           <button id="newMatch">Nowy mecz</button>
         </div>
       </div>
@@ -351,6 +564,10 @@ function renderGame() {
           </section>
         </div>
         <aside class="sidepanel">
+          <section class="panel action-preview">
+            <h3>Podgląd zagrania</h3>
+            ${playPreview()}
+          </section>
           <section class="panel">
             <h3>Wynik meczu</h3>
             <p>${playerName(0)}: <strong>${game.scores[0]}</strong></p>
@@ -372,6 +589,7 @@ function renderGame() {
   app.querySelector("#endTurn").addEventListener("click", endTurn);
   app.querySelector("#newMatch").addEventListener("click", () => {
     game = null;
+    localStorage.removeItem(STORAGE_KEY);
     renderBuilder();
   });
   app.querySelectorAll("[data-hand]").forEach((el) => {
@@ -383,6 +601,7 @@ function renderGame() {
   app.querySelectorAll("[data-drop]").forEach((el) => {
     el.addEventListener("click", () => playSelected(Number(el.dataset.player), Number(el.dataset.drop)));
   });
+  saveState();
 }
 
 function renderScoreBox(i) {
@@ -393,11 +612,18 @@ function renderScoreBox(i) {
 }
 
 function renderLocation(i) {
+  const rule = locationRule(i);
+  const a = locationPower(0, i);
+  const b = locationPower(1, i);
+  const leadClass = a === b ? "tie" : a > b ? "lead-a" : "lead-b";
   return `
-    <section class="location">
-      <div class="zone" data-player="1" data-drop="${i}">${game.players[1].locations[i].map(renderBoardCard).join("")}</div>
-      <div class="loc-title">Lokacja ${i + 1}</div>
-      <div class="zone" data-player="0" data-drop="${i}">${game.players[0].locations[i].map(renderBoardCard).join("")}</div>
+    <section class="location ${leadClass}">
+      <div class="zone ${canPlayTo(1, i) ? "legal-target" : ""}" data-player="1" data-drop="${i}">${game.players[1].locations[i].map(renderBoardCard).join("")}</div>
+      <div class="loc-title">
+        <strong>${rule.name}</strong>
+        <span>${rule.text}</span>
+      </div>
+      <div class="zone ${canPlayTo(0, i) ? "legal-target" : ""}" data-player="0" data-drop="${i}">${game.players[0].locations[i].map(renderBoardCard).join("")}</div>
     </section>
   `;
 }
@@ -421,7 +647,10 @@ function renderHandCard(card) {
   return `
     <article class="card ${playable ? "playable" : ""} ${selectedHandUid === card.uid ? "selected" : ""}" data-hand="${card.uid}">
       ${renderCardArt(card.defId, card.name)}
-      <h3>${card.name}</h3>
+      <div class="card-heading">
+        <h3>${card.name}</h3>
+        ${renderTagBadge(card)}
+      </div>
       <div class="stats">
         <span class="pill threshold">Próg ${effectiveThreshold(game.turnPlayer, card)}</span>
         <span class="pill power">Moc ${card.basePower}</span>
@@ -441,6 +670,7 @@ function cardPower(card) {
   const player = card.controller;
   const loc = findCardLocation(card.uid);
   if (!loc) return value;
+  value += locationRule(loc.loc).bonus(card, game.players[player].locations[loc.loc]);
   if (card.defId === 15) value += game.players[opponent(player)].locations[loc.loc].length * 2;
   game.players[player].locations[loc.loc].forEach((other) => {
     if (!other.silenced && other.uid !== card.uid && other.defId === 22) value += 2;
@@ -474,8 +704,7 @@ async function playSelected(targetPlayer, loc) {
   const p = game.players[player];
   const card = p.hand.find((c) => c.uid === selectedHandUid);
   if (!card || !canPlayCard(player, card)) return;
-  if (targetPlayer !== player && card.defId !== 25) return;
-  if (!hasSpace(targetPlayer, loc, card)) {
+  if (!canPlayTo(targetPlayer, loc, card)) {
     log(`Brak miejsca w lokacji ${loc + 1}.`);
     renderGame();
     return;
@@ -824,7 +1053,7 @@ function collectBoardChoices(player, loc) {
 
 function chooseLocation(player, title) {
   const choices = [0, 1, 2]
-    .filter((loc) => game.players[player].locations[loc].length < 4)
+    .filter((loc) => hasSpace(player, loc, { defId: 0 }))
     .map((loc) => ({ label: `Lokacja ${loc + 1}`, value: loc }));
   return choose(title, choices, true);
 }
@@ -926,6 +1155,7 @@ function finishRound() {
 
 function showMatchEnd() {
   const result = game.scores[0] === game.scores[1] ? "Mecz kończy się remisem." : `${playerName(game.scores[0] > game.scores[1] ? 0 : 1)} wygrywa mecz.`;
+  localStorage.removeItem(STORAGE_KEY);
   app.innerHTML = `
     <section class="screen">
       <div class="topbar">
@@ -944,4 +1174,47 @@ function showMatchEnd() {
   app.querySelector("#backBuilder").addEventListener("click", renderBuilder);
 }
 
-renderBuilder();
+function serializeDeckDraft() {
+  return deckDraft.map((draft) => ({
+    main: [...draft.main],
+    extra: [...draft.extra],
+  }));
+}
+
+function saveState() {
+  const payload = {
+    uid,
+    selectedBuilderPlayer,
+    builderFilters,
+    deckDraft: serializeDeckDraft(),
+    game,
+    selectedHandUid,
+  };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+}
+
+function restoreState() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return false;
+  try {
+    const state = JSON.parse(raw);
+    uid = state.uid || 1;
+    selectedBuilderPlayer = state.selectedBuilderPlayer || 0;
+    selectedHandUid = state.selectedHandUid || null;
+    builderFilters = { ...builderFilters, ...(state.builderFilters || {}) };
+    if (Array.isArray(state.deckDraft)) {
+      state.deckDraft.forEach((draft, index) => {
+        deckDraft[index].main = new Set(draft.main || []);
+        deckDraft[index].extra = new Set(draft.extra || []);
+      });
+    }
+    game = state.game || null;
+    return true;
+  } catch {
+    localStorage.removeItem(STORAGE_KEY);
+    return false;
+  }
+}
+
+if (restoreState() && game) renderGame();
+else renderBuilder();
