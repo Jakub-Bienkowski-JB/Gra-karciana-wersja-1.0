@@ -93,6 +93,7 @@ let uid = 1;
 let selectedBuilderPlayer = 0;
 let selectedHandUid = null;
 let game = null;
+let botActing = false;
 let builderFilters = {
   query: "",
   tag: "all",
@@ -114,45 +115,7 @@ const TAG_LABELS = {
   special: "Specjalne",
 };
 
-const LOCATION_RULES = {
-  academy: {
-    name: "Akademia Progu",
-    text: "Karty o progu 1 mają tutaj +1 mocy.",
-    bonus(card) {
-      return card.baseThreshold === 1 ? 1 : 0;
-    },
-  },
-  foundry: {
-    name: "Kuźnia Kolosów",
-    text: "Karty o mocy bazowej 4 lub większej mają tutaj +1 mocy.",
-    bonus(card) {
-      return card.basePower >= 4 ? 1 : 0;
-    },
-  },
-  ruins: {
-    name: "Ciche Ruiny",
-    text: "Wyciszone karty nie tracą tutaj mocy bazowej, ale nie dostają premii.",
-    bonus() {
-      return 0;
-    },
-  },
-  grove: {
-    name: "Szmaragdowy Gaj",
-    text: "Tokeny mają tutaj +1 mocy.",
-    bonus(card) {
-      return card.token ? 1 : 0;
-    },
-  },
-  arena: {
-    name: "Arena Królowej",
-    text: "Pierwsza karta każdego gracza w tej lokacji ma +2 mocy.",
-    bonus(card, locationCards) {
-      return locationCards[0]?.uid === card.uid ? 2 : 0;
-    },
-  },
-};
-
-const LOCATION_POOL = Object.keys(LOCATION_RULES);
+const BOT_PLAYER = 1;
 
 function cloneDef(def, owner) {
   return {
@@ -267,6 +230,10 @@ function renderBuilder() {
             <button id="sampleDecks">Szybkie talie testowe</button>
             <button id="clearDeck">Wyczyść gracza</button>
           </div>
+          <label class="toggle-row">
+            <input id="botToggle" type="checkbox" checked />
+            Bot gra jako Gracz B
+          </label>
           <section class="deck-preview">
             <h2>Aktualna talia</h2>
             ${renderDeckSection("Podstawowe", cardsFromSet(p.main), 12)}
@@ -407,15 +374,17 @@ function makeSampleDecks(startImmediately = false) {
 
 function startMatch() {
   localStorage.removeItem(STORAGE_KEY);
+  const botEnabled = app.querySelector("#botToggle")?.checked ?? true;
   game = {
     screen: "game",
     matchRound: 1,
     roundTurn: 0,
     turnPlayer: Math.random() < 0.5 ? 0 : 1,
     starter: 0,
+    roundStarter: 0,
     scores: [0, 0],
     logs: [],
-    locations: [],
+    botEnabled,
     players: [createMatchPlayer(0), createMatchPlayer(1)],
   };
   game.starter = game.turnPlayer;
@@ -425,7 +394,7 @@ function startMatch() {
 function createMatchPlayer(index) {
   return {
     mainIds: [...deckDraft[index].main],
-    extraIds: [...deckDraft[index].extra],
+    extraPool: [...deckDraft[index].extra],
     deck: [],
     hand: [],
     grave: [],
@@ -444,12 +413,12 @@ function createMatchPlayer(index) {
 function startRound() {
   selectedHandUid = null;
   game.roundTurn = 1;
-  game.locations = shuffle(LOCATION_POOL).slice(0, 3);
   game.turnPlayer = game.matchRound === 1 ? game.starter : opponent(game.starter);
   if (game.matchRound % 2 === 1) game.turnPlayer = game.starter;
   else game.turnPlayer = opponent(game.starter);
+  game.roundStarter = game.turnPlayer;
   game.players.forEach((p, index) => {
-    const activeIds = [...p.mainIds, ...p.extraIds.slice(0, Math.max(0, game.matchRound - 1))];
+    const activeIds = [...p.mainIds];
     p.deck = shuffle(activeIds.map((id) => cloneDef(CARDS.find((c) => c.id === id), index)));
     p.hand = [];
     p.grave = [];
@@ -479,10 +448,6 @@ function beginTurn() {
 function currentHandCard() {
   if (!game || !selectedHandUid) return null;
   return game.players[game.turnPlayer].hand.find((card) => card.uid === selectedHandUid) || null;
-}
-
-function locationRule(loc) {
-  return LOCATION_RULES[game.locations?.[loc]] || { name: `Lokacja ${loc + 1}`, text: "Brak specjalnej reguły.", bonus: () => 0 };
 }
 
 function canPlayTo(targetPlayer, loc, card = currentHandCard()) {
@@ -602,6 +567,7 @@ function renderGame() {
     el.addEventListener("click", () => playSelected(Number(el.dataset.player), Number(el.dataset.drop)));
   });
   saveState();
+  scheduleBotTurn();
 }
 
 function renderScoreBox(i) {
@@ -612,7 +578,6 @@ function renderScoreBox(i) {
 }
 
 function renderLocation(i) {
-  const rule = locationRule(i);
   const a = locationPower(0, i);
   const b = locationPower(1, i);
   const leadClass = a === b ? "tie" : a > b ? "lead-a" : "lead-b";
@@ -620,8 +585,8 @@ function renderLocation(i) {
     <section class="location ${leadClass}">
       <div class="zone ${canPlayTo(1, i) ? "legal-target" : ""}" data-player="1" data-drop="${i}">${game.players[1].locations[i].map(renderBoardCard).join("")}</div>
       <div class="loc-title">
-        <strong>${rule.name}</strong>
-        <span>${rule.text}</span>
+        <strong>Lokacja ${i + 1}</strong>
+        <span>${a} : ${b}</span>
       </div>
       <div class="zone ${canPlayTo(0, i) ? "legal-target" : ""}" data-player="0" data-drop="${i}">${game.players[0].locations[i].map(renderBoardCard).join("")}</div>
     </section>
@@ -670,7 +635,6 @@ function cardPower(card) {
   const player = card.controller;
   const loc = findCardLocation(card.uid);
   if (!loc) return value;
-  value += locationRule(loc.loc).bonus(card, game.players[player].locations[loc.loc]);
   if (card.defId === 15) value += game.players[opponent(player)].locations[loc.loc].length * 2;
   game.players[player].locations[loc.loc].forEach((other) => {
     if (!other.silenced && other.uid !== card.uid && other.defId === 22) value += 2;
@@ -1060,6 +1024,10 @@ function chooseLocation(player, title) {
 
 function choose(title, choices, allowCancel) {
   return new Promise((resolve) => {
+    if (botActing) {
+      resolve(choices[0]?.value ?? null);
+      return;
+    }
     modal.classList.remove("hidden");
     modal.innerHTML = `
       <div class="dialog">
@@ -1086,9 +1054,9 @@ function choose(title, choices, allowCancel) {
 
 async function endTurn() {
   await resolveEndTurnPassives(game.turnPlayer);
-  if (game.turnPlayer === opponent(game.starter)) game.roundTurn++;
+  if (game.turnPlayer === opponent(game.roundStarter)) game.roundTurn++;
   if (game.roundTurn > 6) {
-    finishRound();
+    await finishRound();
     return;
   }
   game.turnPlayer = opponent(game.turnPlayer);
@@ -1115,7 +1083,67 @@ async function resolveEndTurnPassives(player) {
   }
 }
 
-function finishRound() {
+function scheduleBotTurn() {
+  if (!game?.botEnabled || game.turnPlayer !== BOT_PLAYER || botActing) return;
+  window.setTimeout(runBotTurn, 450);
+}
+
+function bestBotCard(player) {
+  return game.players[player].hand
+    .filter((card) => canPlayCard(player, card))
+    .sort((a, b) => {
+      const scoreA = cardPowerPreview(a) - effectiveThreshold(player, a) * 0.35;
+      const scoreB = cardPowerPreview(b) - effectiveThreshold(player, b) * 0.35;
+      return scoreB - scoreA;
+    })[0] || null;
+}
+
+function cardPowerPreview(card) {
+  return card.basePower + card.powerMod;
+}
+
+function bestBotTarget(player, card) {
+  const targets = [];
+  for (let loc = 0; loc < 3; loc++) {
+    if (canPlayTo(player, loc, card)) {
+      const own = locationPower(player, loc);
+      const enemy = locationPower(opponent(player), loc);
+      targets.push({ player, loc, score: enemy - own + cardPowerPreview(card) });
+    }
+    if (card.defId === 25 && canPlayTo(opponent(player), loc, card)) {
+      const enemy = locationPower(opponent(player), loc);
+      targets.push({ player: opponent(player), loc, score: enemy - cardPowerPreview(card) });
+    }
+  }
+  return targets.sort((a, b) => b.score - a.score)[0] || null;
+}
+
+async function runBotTurn() {
+  if (!game?.botEnabled || game.turnPlayer !== BOT_PLAYER || botActing) return;
+  botActing = true;
+  try {
+    let guard = 0;
+    while (game && game.turnPlayer === BOT_PLAYER && game.players[BOT_PLAYER].playsLeft > 0 && guard < 5) {
+      guard++;
+      const card = bestBotCard(BOT_PLAYER);
+      if (!card) break;
+      const target = bestBotTarget(BOT_PLAYER, card);
+      if (!target) break;
+      selectedHandUid = card.uid;
+      await playSelected(target.player, target.loc);
+      await wait(220);
+    }
+    if (game && game.turnPlayer === BOT_PLAYER) await endTurn();
+  } finally {
+    botActing = false;
+  }
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function finishRound() {
   const powersA = [0, 1, 2].map((loc) => locationPower(0, loc));
   const powersB = [0, 1, 2].map((loc) => locationPower(1, loc));
   let winsA = 0;
@@ -1149,8 +1177,44 @@ function finishRound() {
     showMatchEnd();
     return;
   }
+  await promoteExtraCards();
   game.matchRound++;
   startRound();
+}
+
+async function promoteExtraCards() {
+  const nextRound = game.matchRound + 1;
+  for (const player of [0, 1]) {
+    const p = game.players[player];
+    if (!p.extraPool.length) continue;
+    const options = p.extraPool
+      .map((id) => CARDS.find((card) => card.id === id))
+      .filter(Boolean);
+    let selected = null;
+    if (player === BOT_PLAYER && game.botEnabled) {
+      selected = chooseBotExtra(options);
+    } else {
+      const wasBotActing = botActing;
+      botActing = false;
+      selected = await choose(`Przed partią ${nextRound}: ${playerName(player)} wybiera kartę dodatkową.`, options.map((card) => ({
+        label: `${card.name} · próg ${card.threshold}, moc ${card.power}`,
+        value: card,
+      })), false);
+      botActing = wasBotActing;
+    }
+    if (!selected) continue;
+    p.extraPool = p.extraPool.filter((id) => id !== selected.id);
+    p.mainIds.push(selected.id);
+    log(`${playerName(player)} dodaje ${selected.name} do talii podstawowej.`);
+  }
+}
+
+function chooseBotExtra(options) {
+  return [...options].sort((a, b) => {
+    const scoreA = a.power - a.threshold * 0.3;
+    const scoreB = b.power - b.threshold * 0.3;
+    return scoreB - scoreA;
+  })[0] || null;
 }
 
 function showMatchEnd() {
@@ -1209,6 +1273,14 @@ function restoreState() {
       });
     }
     game = state.game || null;
+    if (game) {
+      game.roundStarter ??= game.turnPlayer ?? game.starter ?? 0;
+      game.botEnabled ??= true;
+      game.players?.forEach((player, index) => {
+        player.extraPool ??= [...(player.extraIds || deckDraft[index].extra || [])];
+        delete player.extraIds;
+      });
+    }
     return true;
   } catch {
     localStorage.removeItem(STORAGE_KEY);

@@ -217,6 +217,18 @@ label {
   border-radius: 999px;
 }
 
+.toggle-row {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.toggle-row input {
+  width: auto;
+}
+
 .card {
   min-height: 164px;
   border: 1px solid var(--line);
@@ -233,7 +245,7 @@ label {
 
 .card-art {
   width: 100%;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 2 / 3;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: #11131a;
@@ -243,7 +255,7 @@ label {
 }
 
 .card-art-small {
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 2 / 3;
   border-radius: 6px;
 }
 
