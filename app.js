@@ -152,7 +152,7 @@ function renderBuilder() {
     <section class="screen">
       <div class="topbar">
         <div class="brand">
-          <h1>Tratatata</h1>
+          <h1>Gra karciana wersja 1.0</h1>
           <span>Prototyp lokalnej gry 1v1</span>
         </div>
         <button id="startGame" ${validA && validB ? "" : "disabled"}>Rozpocznij mecz</button>
@@ -329,7 +329,7 @@ function renderGame() {
     <section class="screen">
       <div class="topbar">
         <div class="brand">
-          <h1>Tratatata</h1>
+          <h1>Gra karciana wersja 1.0</h1>
           <span>Partia ${game.matchRound}/4, tura ${game.roundTurn}/6, ruch: ${playerName(game.turnPlayer)}</span>
         </div>
         <div class="actions">

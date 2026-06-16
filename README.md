@@ -1,4 +1,4 @@
-# Tratatata
+# Gra karciana wersja 1.0
 
 Prototyp przeglądarkowej gry karcianej 1v1.
 
