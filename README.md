@@ -15,11 +15,11 @@ Aktualna wersja działa jako lokalne 1v1 na jednym ekranie:
 - podgląd zagrania i podświetlanie legalnych celów,
 - tury, dobieranie, cmentarz i efekty kart,
 - zapis aktywnego meczu i talii w `localStorage`,
-- grafiki kart z folderu `ikony`.
+- zoptymalizowane grafiki kart z folderu `ikony-opt`.
 
 ## Uruchomienie lokalne
 
-Otwórz `index.html` w przeglądarce albo uruchom prosty serwer:
+Projekt używa modułów ES, więc uruchamiaj go przez prosty serwer HTTP:
 
 ```powershell
 python -m http.server 8765
@@ -31,8 +31,30 @@ Potem wejdź na:
 http://127.0.0.1:8765
 ```
 
+## Skrypty developerskie
+
+```powershell
+npm.cmd test
+npm.cmd run check
+npm.cmd run assets:optimize
+```
+
+- `test` uruchamia testy logiki gry przez wbudowany `node:test`.
+- `check` sprawdza składnię głównego modułu aplikacji.
+- `assets:optimize` odtwarza lekkie kopie grafik w `ikony-opt` na podstawie plików PNG z `ikony`.
+
+## Struktura
+
+- `app.js` - warstwa aplikacji, renderowanie i przepływ rozgrywki.
+- `src/cards.js` - definicje kart, tokenów, grafik i etykiet.
+- `src/rules.js` - czyste reguły możliwe do testowania bez DOM.
+- `src/effects.js` - słowa kluczowe i rejestr mechanik kart.
+- `test/` - testy reguł i rejestru efektów.
+- `ikony/` - oryginalne grafiki PNG.
+- `ikony-opt/` - skompresowane grafiki używane przez aplikację.
+
 ## Wersja online
 
 Projekt jest statyczny, więc może działać na GitHub Pages, Netlify albo Cloudflare Pages.
 
-Uwaga: obecna wersja nie ma jeszcze prawdziwego multiplayera online przez internet. Dwóch graczy gra lokalnie na jednym ekranie.
+Obecna wersja nie ma jeszcze prawdziwego multiplayera online przez internet. Dwóch graczy gra lokalnie na jednym ekranie.

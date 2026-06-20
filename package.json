@@ -1,0 +1,11 @@
+{
+  "name": "gra-karciana-wersja-1",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "assets:optimize": "powershell -ExecutionPolicy Bypass -File scripts/optimize-images.ps1",
+    "test": "node --test",
+    "check": "node --check app.js"
+  }
+}

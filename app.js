@@ -1,119 +1,25 @@
-const CARDS = [
-  { id: 1, name: "Słodki Goblin", threshold: 1, power: 1, text: "Zagranie: Dobierz kartę.", tags: ["play"] },
-  { id: 2, name: "Pojmany Ork", threshold: 4, power: 3, text: "Zagranie: Cofnij kartę przeciwnika z tej lokacji do jego ręki.", tags: ["play"] },
-  { id: 3, name: "Wielofunkcyjny Robot", threshold: 2, power: 3, text: "Pasywka: Twoje karty mają obniżony próg o 1.", tags: ["passive"] },
-  { id: 4, name: "Obsydianowy Król", threshold: 6, power: 0, text: "Zagranie: Jeżeli nie masz kart w talii, daj wszystkim twoim lokacjom +5 mocy.", tags: ["play"] },
-  { id: 5, name: "Rogata Bestia", threshold: 1, power: 2, text: "Zagranie: Przyzwij Bojowego Konia z mocą 1 w tej lokacji.", tags: ["play"] },
-  { id: 6, name: "Pomnik Wielkiej Królowej", threshold: 2, power: 1, text: "Pasywka: Gdy dobierzesz dwie karty podczas jednej tury, możesz zagrać dodatkową kartę w tej turze.", tags: ["passive"] },
-  { id: 7, name: "Elektryczny Smok", threshold: 3, power: 3, text: "Zagranie: Zniszcz inną swoją kartę i kartę przeciwnika w tej lokacji.", tags: ["play"] },
-  { id: 8, name: "Szmaragdowy Druid", threshold: 6, power: 0, text: "Zagranie: Zapełnij wszystkie miejsca w twoich lokacjach totemami z mocą 1.", tags: ["play"] },
-  { id: 9, name: "Żywy Wulkan", threshold: 4, power: 3, text: "Zniszczenie: Odrzuć dowolną kartę. Dobierz dwie karty z talii.", tags: ["destroy"] },
-  { id: 10, name: "Oszalały Górnik", threshold: 3, power: 2, text: "Zagranie: Dobierz dowolną kartę z twojej talii. Następnie ją przetasuj.", tags: ["play"] },
-  { id: 11, name: "Zabójcza Strzała", threshold: 4, power: 3, text: "Zagranie: Zniszcz kartę przeciwnika z najwyższą mocą w tej lokacji.", tags: ["play"] },
-  { id: 12, name: "Ożywieniec", threshold: 1, power: 3, text: "Zniszczenie: Dobierz kartę ze spodu cmentarza.", tags: ["destroy"] },
-  { id: 13, name: "Radosny Pingwin", threshold: 5, power: 1, text: "Zniszczenie: Przyzwij w tej lokacji wściekłego Yeti z mocą 10.", tags: ["destroy"] },
-  { id: 14, name: "Słoneczny Gigant", threshold: 5, power: 10, text: "Pasywka: Zajmuje wszystkie cztery miejsca w lokacji.", tags: ["passive"] },
-  { id: 15, name: "Kwiat Pustki", threshold: 3, power: 0, text: "Pasywka: Otrzymuje +2 do mocy za każdą kartę przeciwnika w tej lokacji.", tags: ["passive"] },
-  { id: 16, name: "Wieczny Sługa", threshold: 2, power: 1, text: "Pasywka: Gdy zniszczysz kartę w tej turze, możesz zagrać dodatkową kartę (raz na turę).", tags: ["passive"] },
-  { id: 17, name: "Szalony Błazen", threshold: 3, power: 4, text: "Zagranie: Każdy gracz wybiera po jednej karcie ze swojej ręki. Wymieniacie się tymi kartami.", tags: ["play"] },
-  { id: 18, name: "Maszyna Wojenna", threshold: 10, power: 8, text: "Próg tej karty zmniejsza się o 1 za każdą twoją kartę na polu bitwy.", tags: ["hand"] },
-  { id: 19, name: "Miś Zwiadowca", threshold: 4, power: 2, text: "Zagranie: Powtórz Zagranie wybranej twojej karty z tej lokacji.", tags: ["play"] },
-  { id: 20, name: "Tik-Tak", threshold: 1, power: 1, text: "Zagranie: Twoja kolejna zagrana karta ma próg obniżony o 1.", tags: ["play"] },
-  { id: 21, name: "Złodziej Kart", threshold: 2, power: -2, text: "Zagranie: W kolejnej turze możesz zagrać dodatkową kartę.", tags: ["play"] },
-  { id: 22, name: "Mroźny Kowal", threshold: 3, power: 2, text: "Pasywka: Twoje inne karty w tej lokacji mają +2 mocy.", tags: ["passive"] },
-  { id: 23, name: "Zdradliwe życzenie", threshold: 4, power: 4, text: "Zagranie: Dobierz dwie dowolne karty z twojej talii. Jedną zachowaj, drugą odrzuć.", tags: ["play"] },
-  { id: 24, name: "Oświecony ilustrator", threshold: 5, power: 3, text: "Zagranie: Dobierz kartę za każdą kartę przeciwnika w tej lokacji.", tags: ["play"] },
-  { id: 25, name: "Złośliwy chochlik", threshold: 3, power: -3, text: "Ta karta może zostać zagrana do lokacji przeciwnika.", tags: ["special"] },
-  { id: 26, name: "Kusznik wyborowy", threshold: 2, power: 2, text: "Zagranie: Zniszcz kartę przeciwnika z mocą 1 lub mniejszą.", tags: ["play"] },
-  { id: 27, name: "Zagubiona dusza", threshold: 1, power: -1, text: "Zniszczenie: Gdy ta karta zostanie zniszczona podczas twojej tury, możesz zagrać dodatkową kartę.", tags: ["destroy"] },
-  { id: 28, name: "Obserwator", threshold: 1, power: 3, text: "Zagranie: Spójrz na górną kartę przeciwnika z jego talii. Możesz ją zostawić lub przełożyć na spód.", tags: ["play"] },
-  { id: 29, name: "Łowca dezerterów", threshold: 1, power: 2, text: "Zagranie: Cofnij swoją kartę do ręki z dowolnej lokacji.", tags: ["play"] },
-  { id: 30, name: "Ogromna armata", threshold: 2, power: 2, text: "Pasywka: Na koniec tury daj losowej lokacji +1 do mocy.", tags: ["passive"] },
-  { id: 31, name: "Hiena cmentarna", threshold: 2, power: 0, text: "Zagranie: Przełóż swój cmentarz do swojej talii, a następnie ją przetasuj.", tags: ["play"] },
-  { id: 32, name: "Szalony alchemik", threshold: 1, power: -2, text: "Zagranie: Wycisz kartę przeciwnika w tej lokacji.", tags: ["play"] },
-  { id: 33, name: "Krowi desant", threshold: 2, power: 3, text: "Gdy ta karta zostanie odrzucona, wyłóż ją do dowolnej twojej lokacji.", tags: ["discard"] },
-  { id: 34, name: "Pajęczy kokon", threshold: 1, power: 1, text: "Zniszczenie: Do każdej twojej lokacji przyzwij jednego pająka o mocy 2.", tags: ["destroy"] },
-  { id: 35, name: "Miotacz ognia", threshold: 2, power: 3, text: "Pasywka: Gdy zagrasz kartę o obniżonym progu, w tej turze możesz zagrać dodatkową kartę (raz na turę).", tags: ["passive"] },
-  { id: 36, name: "Zapracowany farmer", threshold: 1, power: 1, text: "Gdy ta karta zostanie odrzucona, dobierz kartę.", tags: ["discard"] },
-  { id: 37, name: "Przenośna niszczarka", threshold: 3, power: 0, text: "Pasywka: Na koniec tury odrzuć dowolną kartę. Za każdą odrzuconą kartę otrzymuje +1 do mocy.", tags: ["passive"] },
-  { id: 38, name: "Groźny byk", threshold: 3, power: 4, text: "Gdy ta karta zostanie odrzucona, przeciwnik odrzuca kartę.", tags: ["discard"] },
-  { id: 39, name: "Cyklamenowa Kostucha", threshold: 6, power: 0, text: "Zagranie: Odrzuć każdą kartę w ręku. Za każdą otrzymuje +2 do mocy.", tags: ["play"] },
-  { id: 40, name: "Napędzany chomik", threshold: 2, power: 2, text: "Gdy ta karta zostanie odrzucona, daj wszystkim twoim lokacjom +1 do mocy i włóż ją na spód twojej talii.", tags: ["discard"] },
-  { id: 41, name: "Cierpliwy Mnich", threshold: 4, power: 2, text: "Zagranie: Aktywuj Zniszczenie twojej karty w tej lokacji.", tags: ["play"] },
-  { id: 42, name: "Hojny Baron", threshold: 6, power: 1, text: "Pasywka: Wszystkie inne twoje karty na polu bitwy mają +1 do mocy.", tags: ["passive"] },
-  { id: 43, name: "Lustrzany Rycerz", threshold: 3, power: 3, text: "Zagranie: Odrzuć kartę. Jeżeli to karta o progu 1, wyłóż ją do dowolnej lokacji.", tags: ["play"] },
-  { id: 44, name: "Mag wiecznej zimy", threshold: 1, power: 0, text: "Pasywka: Twoje inne karty na polu bitwy o progu 1 mają +1 do mocy.", tags: ["passive"] },
-  { id: 45, name: "Armia \"Zimowe uderzenie\"", threshold: 1, power: 4, text: "Pasywka: Na koniec tury zniszcz wszystkie twoje karty w tej lokacji, które nie mają progu 1.", tags: ["passive"] },
-  { id: 46, name: "Zimowa Kawaleria", threshold: 1, power: -1, text: "Zagranie: Jeżeli posiadasz w tej lokacji trzy inne karty o progu 1, możesz zagrać dwie dodatkowe karty w tej turze.", tags: ["play"] },
-  { id: 47, name: "Obozowy kucharz", threshold: 3, power: 3, text: "Zniszczenie: Daj twoim kartom w tej lokacji +2 do mocy.", tags: ["destroy"] },
-  { id: 48, name: "Siewca śmierci", threshold: 6, power: -2, text: "Zagranie: Jeżeli w twoim stosie kart zniszczonych jest co najmniej 6 kart, zniszcz dwie karty przeciwnika na polu bitwy.", tags: ["play"] },
-  { id: 49, name: "Dzwonnik zwycięstwa", threshold: 5, power: 4, text: "Zagranie: Wyłóż kartę z wierzchu twojej talii do dowolnej lokacji.", tags: ["play"] },
-  { id: 50, name: "Wilkołak z Wiśniowego Lasu", threshold: 4, power: 10, text: "Pasywka: Twoje karty na polu bitwy mają -1 do mocy.", tags: ["passive"] },
-];
-
-const TOKENS = {
-  horse: { id: "token-horse", name: "Bojowy Koń", threshold: 1, power: 1, text: "Token.", tags: [] },
-  totem: { id: "token-totem", name: "Totem", threshold: 1, power: 1, text: "Token.", tags: [] },
-  yeti: { id: "token-yeti", name: "Wściekły Yeti", threshold: 5, power: 10, text: "Token.", tags: [] },
-  spider: { id: "token-spider", name: "Pająk", threshold: 1, power: 2, text: "Token.", tags: [] },
-};
-
-const CARD_IMAGES = {
-  1: "Słodki Goblin.png",
-  2: "Pojmany Ork.png",
-  3: "Wielofunkcyjny Robot.png",
-  4: "Obsydianowy Król.png",
-  5: "Rogata Bestia.png",
-  6: "Pomnik Wielkiej Królowej.png",
-  7: "Elektryczny Smok.png",
-  8: "Szmaragdowy Druid.png",
-  9: "Ożywiony Wulkan.png",
-  10: "Oszalały Górnik.png",
-  11: "Zabójcza Strzała.png",
-  12: "Ożywieniec.png",
-  13: "Radosny Pingwin.png",
-  14: "Słoneczny Gigant.png",
-  15: "Kwiat Pustki.png",
-  16: "Wieczny Sługa.png",
-  17: "Szalony Błazen.png",
-  18: "Maszyna Wojenna.png",
-  19: "Miś Zwiadowca.png",
-  20: "Tik-Tak.png",
-  21: "Złodziej Kart.png",
-  22: "Mroźny Kowal.png",
-  23: "Zdradliwe Życzenie.png",
-  24: "Oświecony Ilustrator.png",
-  25: "Złośliwy Chochlik.png",
-  26: "Kusznik Wyborowy.png",
-  27: "Zagubiona Dusza.png",
-  28: "Obserwator.png",
-  29: "Łowca dezerterów.png",
-  30: "Ogromna armata.png",
-  31: "Hiena Cmentarna.png",
-  32: "Szalony Alchemik.png",
-  33: "Krowi Desant.png",
-  34: "Pajęczy kokon.png",
-  35: "Miotacz ognia.png",
-  36: "Zapracowany farmer.png",
-  37: "Przenośna niszczarka.png",
-  38: "Wściekły byk.png",
-  39: "Cyklamenowa Kostucha.png",
-  40: "Napędzany chomik.png",
-  41: "Cierpliwy Mnich.png",
-  42: "Hojny Baron.png",
-  43: "Lustrzany Rycerz.png",
-  44: "Mag wiecznej zimy.png",
-  45: "Armia Zimowe uderzenie.png",
-  46: "Zimowa kawaleria.png",
-  47: "Obozowy kucharz.png",
-  48: "Siewca Śmierci.png",
-  49: "Dzwonnik zwycięstwa.png",
-  50: "Wilkołak z Wiśniowego Lasu.png",
-  "token-horse": "Minion Rogatej Bestii.png",
-  "token-totem": "Minion Szmaragdowego Druida.png",
-  "token-yeti": "Minion Radosnego Pingwinka.png",
-  "token-spider": "Minion Pajęczego kokona.png",
-};
+import { CARDS, TOKENS, OPTIMIZED_CARD_IMAGES, TAG_LABELS } from './src/cards.js';
+import {
+  cardPowerPreview as botCardPowerPreview,
+  chooseBotCard,
+  chooseBotExtra as chooseBestBotExtra,
+  chooseBotTarget,
+} from './src/bot.js';
+import {
+  BOT_PLAYER,
+  cardImagePath,
+  createCardInstance,
+  evaluateRoundWinner,
+  filterAndSortCards,
+  hasSpaceForCard,
+  moveCardToPrivateZone,
+  opponent,
+  playerName,
+  primaryTag,
+  resetCardEffects,
+  serializeDeckDraft as serializeDeckDraftState,
+  shuffle,
+} from './src/rules.js';
 
 const app = document.querySelector("#app");
 const modal = document.querySelector("#modal");
@@ -146,54 +52,13 @@ const deckDraft = [
   { main: new Set(), extra: new Set() },
 ];
 
-const TAG_LABELS = {
-  all: "Wszystkie",
-  play: "Zagranie",
-  passive: "Pasywka",
-  destroy: "Zniszczenie",
-  discard: "Odrzucenie",
-  hand: "Ręka",
-  special: "Specjalne",
-};
-
-const BOT_PLAYER = 1;
-
 function cloneDef(def, owner) {
-  return {
-    uid: uid++,
-    defId: def.id,
-    token: typeof def.id === "string",
-    name: def.name,
-    baseThreshold: def.threshold,
-    basePower: def.power,
-    text: def.text,
-    tags: [...def.tags],
-    owner,
-    controller: owner,
-    powerMod: 0,
-    thresholdMod: 0,
-    silenced: false,
-  };
-}
-
-function shuffle(items) {
-  const copy = [...items];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
-}
-
-function playerName(index) {
-  return index === 0 ? "Gracz A" : "Gracz B";
+  return createCardInstance(def, owner, uid++);
 }
 
 function cardImage(id) {
-  const file = CARD_IMAGES[id];
-  return file ? `ikony/${encodeURIComponent(file)}` : "";
+  return cardImagePath(id, OPTIMIZED_CARD_IMAGES, "ikony-opt");
 }
-
 function retryCardImage(img) {
   const retryCount = Number(img.dataset.retryCount || 0);
   if (retryCount >= 1) {
@@ -208,14 +73,12 @@ function retryCardImage(img) {
   img.src = `${img.src}${separator}retry=${Date.now()}`;
 }
 
+window.retryCardImage = retryCardImage;
+
 function renderCardArt(id, name, size = "large") {
   const src = cardImage(id);
   if (!src) return `<div class="card-art card-art-${size} placeholder">${name.slice(0, 1)}</div>`;
   return `<img class="card-art card-art-${size}" src="${src}" alt="${name}" loading="lazy" onerror="retryCardImage(this)" />`;
-}
-
-function opponent(index) {
-  return index === 0 ? 1 : 0;
 }
 
 function escapeHtml(value) {
@@ -226,29 +89,14 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;");
 }
 
-function primaryTag(card) {
-  return card.tags.find((tag) => tag !== "hand") || card.tags[0] || "special";
-}
-
 function renderTagBadge(card) {
   const tag = primaryTag(card);
   return `<span class="tag tag-${tag}">${TAG_LABELS[tag] || "Efekt"}</span>`;
 }
 
 function filteredCards() {
-  const query = builderFilters.query.trim().toLowerCase();
-  return CARDS.filter((card) => {
-    const matchesQuery = !query || `${card.name} ${card.text}`.toLowerCase().includes(query);
-    const matchesTag = builderFilters.tag === "all" || card.tags.includes(builderFilters.tag);
-    return matchesQuery && matchesTag;
-  }).sort((a, b) => {
-    if (builderFilters.sort === "threshold") return a.threshold - b.threshold || a.id - b.id;
-    if (builderFilters.sort === "power") return b.power - a.power || a.id - b.id;
-    if (builderFilters.sort === "name") return a.name.localeCompare(b.name, "pl");
-    return a.id - b.id;
-  });
+  return filterAndSortCards(CARDS, builderFilters);
 }
-
 function cardsFromSet(set) {
   return [...set].map((id) => CARDS.find((card) => card.id === id)).filter(Boolean);
 }
@@ -1400,19 +1248,6 @@ function choiceCard(choice) {
   return null;
 }
 
-function resetCardEffects(card) {
-  card.powerMod = 0;
-  card.thresholdMod = 0;
-  card.silenced = false;
-}
-
-function moveCardToPrivateZone(card, player) {
-  resetCardEffects(card);
-  card.owner = player;
-  card.controller = player;
-  return card;
-}
-
 function renderChoice(choice) {
   const card = choiceCard(choice);
   if (!card) return escapeHtml(choice.label);
@@ -1482,35 +1317,29 @@ function scheduleBotTurn(delay = 450) {
 }
 
 function bestBotCard(player) {
-  return game.players[player].hand
-    .filter((card) => canPlayCard(player, card))
-    .sort((a, b) => {
-      const scoreA = cardPowerPreview(a) - displayThreshold(player, a) * 0.35;
-      const scoreB = cardPowerPreview(b) - displayThreshold(player, b) * 0.35;
-      return scoreB - scoreA;
-    })[0] || null;
+  return chooseBotCard(
+    game.players[player].hand,
+    (card) => canPlayCard(player, card),
+    (card) => displayThreshold(player, card),
+  );
 }
 
 function cardPowerPreview(card) {
-  return card.basePower + card.powerMod;
+  return botCardPowerPreview(card);
 }
 
 function bestBotTarget(player, card) {
-  const targets = [];
-  for (let loc = 0; loc < 3; loc++) {
-    if (canPlayTo(player, loc, card)) {
-      const own = locationPower(player, loc);
-      const enemy = locationPower(opponent(player), loc);
-      targets.push({ player, loc, score: enemy - own + cardPowerPreview(card) });
-    }
-    if (card.defId === 25 && canPlayTo(opponent(player), loc, card)) {
-      const enemy = locationPower(opponent(player), loc);
-      targets.push({ player: opponent(player), loc, score: enemy - cardPowerPreview(card) });
-    }
-  }
-  return targets.sort((a, b) => b.score - a.score)[0] || null;
+  const enemy = opponent(player);
+  return chooseBotTarget(card, {
+    player,
+    enemy,
+    locations: [0, 1, 2],
+    canPlayOwn: (loc) => canPlayTo(player, loc, card),
+    canPlayEnemy: (loc) => canPlayTo(enemy, loc, card),
+    ownPower: (loc) => locationPower(player, loc),
+    enemyPower: (loc) => locationPower(enemy, loc),
+  });
 }
-
 async function runBotTurn() {
   if (game?.screen !== "game" || !game.botEnabled || game.turnPlayer !== BOT_PLAYER || botActing) return;
   botActing = true;
@@ -1640,11 +1469,7 @@ async function promoteExtraCards() {
 }
 
 function chooseBotExtra(options) {
-  return [...options].sort((a, b) => {
-    const scoreA = a.power - a.threshold * 0.3;
-    const scoreB = b.power - b.threshold * 0.3;
-    return scoreB - scoreA;
-  })[0] || null;
+  return chooseBestBotExtra(options);
 }
 
 function showMatchEnd() {
@@ -1675,13 +1500,6 @@ function showMatchEnd() {
   app.querySelector("#backBuilder").addEventListener("click", renderBuilder);
 }
 
-function serializeDeckDraft() {
-  return deckDraft.map((draft) => ({
-    main: [...draft.main],
-    extra: [...draft.extra],
-  }));
-}
-
 function saveState() {
   const payload = {
     uid,
@@ -1690,7 +1508,7 @@ function saveState() {
     musicEnabled,
     sfxEnabled,
     builderFilters,
-    deckDraft: serializeDeckDraft(),
+    deckDraft: serializeDeckDraftState(deckDraft),
     game,
     selectedHandUid,
   };
