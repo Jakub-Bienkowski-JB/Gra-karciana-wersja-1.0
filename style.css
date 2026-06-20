@@ -259,6 +259,12 @@ label {
   border-radius: 6px;
 }
 
+.card-art-board {
+  aspect-ratio: 2 / 3;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
 .card-art.placeholder {
   display: grid;
   place-items: center;
@@ -502,7 +508,8 @@ label {
 
 .mini-card .card-art {
   aspect-ratio: 2 / 3;
-  max-height: 112px;
+  height: 96px;
+  max-height: 96px;
   object-fit: contain;
   background: #11131a;
 }

@@ -532,6 +532,7 @@ function drawCard(player, countForTurn = true) {
   const p = game.players[player];
   if (!p.deck.length) return null;
   const card = p.deck.shift();
+  moveCardToPrivateZone(card, player);
   p.hand.push(card);
   if (countForTurn) {
     p.drawsThisTurn++;
@@ -656,7 +657,7 @@ function renderLocation(i) {
 function renderBoardCard(card) {
   return `
     <article class="mini-card ${card.silenced ? "silenced" : ""}">
-      ${renderCardArt(card.defId, card.name, "small")}
+      ${renderCardArt(card.defId, card.name, "board")}
       <h4>${card.name}</h4>
       <div class="stats">
         <span class="pill power">${cardPower(card)}</span>
@@ -746,6 +747,7 @@ async function playCardFromHand(player, card, targetPlayer, loc) {
   }
   const lowered = displayThreshold(player, card) < card.baseThreshold;
   p.hand = p.hand.filter((c) => c.uid !== card.uid);
+  card.owner = targetPlayer;
   card.controller = targetPlayer;
   game.players[targetPlayer].locations[loc].push(card);
   p.playsLeft--;
@@ -841,10 +843,10 @@ async function resolvePlayEffect(card, loc, actor) {
       await observer(actor, enemy);
       break;
     case 29:
-      await bounceAnyOwn(actor);
+      await bounceAnyOwn(actor, card.uid);
       break;
     case 31:
-      p.deck = shuffle([...p.deck, ...p.grave]);
+      p.deck = shuffle([...p.deck, ...p.grave].map((c) => moveCardToPrivateZone(c, actor)));
       p.grave = [];
       break;
     case 32:
@@ -908,10 +910,8 @@ async function destroyBoardCard(cardUid) {
   const p = game.players[pos.player];
   const [card] = p.locations[pos.loc].splice(pos.index, 1);
   if (!card.silenced) await resolveDestroyEffect(card, pos.loc, pos.player);
-  card.powerMod = 0;
-  card.thresholdMod = 0;
-  card.silenced = false;
-  game.players[card.owner].grave.unshift(card);
+  moveCardToPrivateZone(card, pos.player);
+  game.players[pos.player].grave.unshift(card);
   game.players[game.turnPlayer].destroyedThisTurn++;
   if (hasOnBoard(game.turnPlayer, 16)) {
     const tp = game.players[game.turnPlayer];
@@ -933,7 +933,7 @@ async function resolveDestroyEffect(card, loc, controller) {
       break;
     case 12: {
       const bottom = game.players[controller].grave.pop();
-      if (bottom) game.players[controller].hand.push(bottom);
+      if (bottom) game.players[controller].hand.push(moveCardToPrivateZone(bottom, controller));
       break;
     }
     case 13:
@@ -975,11 +975,11 @@ async function discardCard(player, card) {
     if (card.defId === 38) await discardFromHand(opponent(player), "Groźny byk: przeciwnik odrzuca kartę.");
     if (card.defId === 40) {
       p.locBonus = p.locBonus.map((v) => v + 1);
-      p.deck.push(card);
+      p.deck.push(moveCardToPrivateZone(card, player));
       return;
     }
   }
-  p.grave.unshift(card);
+  p.grave.unshift(moveCardToPrivateZone(card, player));
 }
 
 async function discardFromHand(player, title, chooserPlayer = player) {
@@ -990,18 +990,17 @@ async function discardFromHand(player, title, chooserPlayer = player) {
   return card;
 }
 
-async function bounceCard(player, loc, title, chooserPlayer = game?.turnPlayer ?? 0) {
-  const choices = collectBoardChoices(player, loc);
+async function bounceCard(player, loc, title, chooserPlayer = game?.turnPlayer ?? 0, filter = () => true) {
+  const choices = collectBoardChoices(player, loc).filter(({ card }) => filter(card));
   if (!choices.length) return;
   const item = await choose(title, choices.map((x) => ({ label: `${x.card.name} (L${x.loc + 1})`, value: x })), true, chooserPlayer);
   if (!item) return;
   game.players[player].locations[item.loc] = game.players[player].locations[item.loc].filter((c) => c.uid !== item.card.uid);
-  item.card.controller = item.card.owner;
-  game.players[item.card.owner].hand.push(item.card);
+  game.players[player].hand.push(moveCardToPrivateZone(item.card, player));
 }
 
-async function bounceAnyOwn(player) {
-  await bounceCard(player, null, "Łowca dezerterów: wybierz swoją kartę do cofnięcia.");
+async function bounceAnyOwn(player, sourceUid = null) {
+  await bounceCard(player, null, "Łowca dezerterów: wybierz swoją kartę do cofnięcia.", game.turnPlayer, (c) => c.uid !== sourceUid);
 }
 
 async function silenceChosen(player, loc) {
@@ -1018,7 +1017,7 @@ async function tutor(player, count) {
     if (!p.deck.length) return;
     const card = await choose("Dobierz kartę z talii.", p.deck.map((c) => ({ label: c.name, value: c })), false, player);
     p.deck = p.deck.filter((c) => c.uid !== card.uid);
-    p.hand.push(card);
+    p.hand.push(moveCardToPrivateZone(card, player));
   }
 }
 
@@ -1028,14 +1027,14 @@ async function treacherousWish(player) {
   const first = await choose("Zdradliwe życzenie: wybierz pierwszą kartę.", p.deck.map((c) => ({ label: c.name, value: c })), false, player);
   p.deck = p.deck.filter((c) => c.uid !== first.uid);
   if (!p.deck.length) {
-    p.hand.push(first);
+    p.hand.push(moveCardToPrivateZone(first, player));
     return;
   }
   const second = await choose("Zdradliwe życzenie: wybierz drugą kartę.", p.deck.map((c) => ({ label: c.name, value: c })), false, player);
   p.deck = p.deck.filter((c) => c.uid !== second.uid);
   const keep = await choose("Którą kartę zachować?", [first, second].map((c) => ({ label: c.name, value: c })), false, player);
   const discard = keep.uid === first.uid ? second : first;
-  p.hand.push(keep);
+  p.hand.push(moveCardToPrivateZone(keep, player));
   await discardCard(player, discard);
 }
 
@@ -1045,10 +1044,8 @@ async function swapHandCards(a, b) {
   const cb = await choose(`${playerName(b)} wybiera kartę do wymiany.`, game.players[b].hand.map((c) => ({ label: c.name, value: c })), false, b);
   game.players[a].hand = game.players[a].hand.filter((c) => c.uid !== ca.uid);
   game.players[b].hand = game.players[b].hand.filter((c) => c.uid !== cb.uid);
-  ca.owner = b;
-  cb.owner = a;
-  game.players[a].hand.push(cb);
-  game.players[b].hand.push(ca);
+  game.players[a].hand.push(moveCardToPrivateZone(cb, a));
+  game.players[b].hand.push(moveCardToPrivateZone(ca, b));
 }
 
 async function repeatPlay(player, loc, sourceUid) {
@@ -1090,9 +1087,12 @@ async function mirrorKnight(player) {
 async function playTopDeck(player) {
   const card = game.players[player].deck.shift();
   if (!card) return;
+  resetCardEffects(card);
+  card.owner = player;
+  card.controller = player;
   const loc = await chooseLocation(player, `Dzwonnik zwycięstwa wykłada: ${card.name}. Wybierz lokację.`, player, card);
   if (loc !== null && summon(player, loc, card)) return;
-  game.players[player].grave.unshift(card);
+  game.players[player].grave.unshift(moveCardToPrivateZone(card, player));
 }
 
 function collectBoardChoices(player, loc) {
@@ -1143,6 +1143,19 @@ function choiceCard(choice) {
   if (value.card) return value.card;
   if (value.defId || value.defId === 0) return value;
   return null;
+}
+
+function resetCardEffects(card) {
+  card.powerMod = 0;
+  card.thresholdMod = 0;
+  card.silenced = false;
+}
+
+function moveCardToPrivateZone(card, player) {
+  resetCardEffects(card);
+  card.owner = player;
+  card.controller = player;
+  return card;
 }
 
 function renderChoice(choice) {
