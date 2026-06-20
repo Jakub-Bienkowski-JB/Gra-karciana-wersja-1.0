@@ -1,6 +1,6 @@
 const CARDS = [
-  { id: 1, name: "Słodki Goblin", threshold: 1, power: 2, text: "Zagranie: Dobierz kartę.", tags: ["play"] },
-  { id: 2, name: "Pojmany Ork", threshold: 4, power: 4, text: "Zagranie: Cofnij kartę przeciwnika z tej lokacji do jego ręki.", tags: ["play"] },
+  { id: 1, name: "Słodki Goblin", threshold: 1, power: 1, text: "Zagranie: Dobierz kartę.", tags: ["play"] },
+  { id: 2, name: "Pojmany Ork", threshold: 4, power: 3, text: "Zagranie: Cofnij kartę przeciwnika z tej lokacji do jego ręki.", tags: ["play"] },
   { id: 3, name: "Wielofunkcyjny Robot", threshold: 2, power: 3, text: "Pasywka: Twoje karty mają obniżony próg o 1.", tags: ["passive"] },
   { id: 4, name: "Obsydianowy Król", threshold: 6, power: 0, text: "Zagranie: Jeżeli nie masz kart w talii, daj wszystkim twoim lokacjom +5 mocy.", tags: ["play"] },
   { id: 5, name: "Rogata Bestia", threshold: 1, power: 2, text: "Zagranie: Przyzwij Bojowego Konia z mocą 1 w tej lokacji.", tags: ["play"] },
@@ -41,7 +41,7 @@ const CARDS = [
   { id: 40, name: "Napędzany chomik", threshold: 2, power: 2, text: "Gdy ta karta zostanie odrzucona, daj wszystkim twoim lokacjom +1 do mocy i włóż ją na spód twojej talii.", tags: ["discard"] },
   { id: 41, name: "Cierpliwy Mnich", threshold: 4, power: 2, text: "Zagranie: Aktywuj Zniszczenie twojej karty w tej lokacji.", tags: ["play"] },
   { id: 42, name: "Hojny Baron", threshold: 6, power: 1, text: "Pasywka: Wszystkie inne twoje karty na polu bitwy mają +1 do mocy.", tags: ["passive"] },
-  { id: 43, name: "Lustrzany Rycerz", threshold: 3, power: 4, text: "Zagranie: Odrzuć kartę. Jeżeli to karta o progu 1, wyłóż ją do dowolnej lokacji.", tags: ["play"] },
+  { id: 43, name: "Lustrzany Rycerz", threshold: 3, power: 3, text: "Zagranie: Odrzuć kartę. Jeżeli to karta o progu 1, wyłóż ją do dowolnej lokacji.", tags: ["play"] },
   { id: 44, name: "Mag wiecznej zimy", threshold: 1, power: 0, text: "Pasywka: Twoje inne karty na polu bitwy o progu 1 mają +1 do mocy.", tags: ["passive"] },
   { id: 45, name: "Armia \"Zimowe uderzenie\"", threshold: 1, power: 4, text: "Pasywka: Na koniec tury zniszcz wszystkie twoje karty w tej lokacji, które nie mają progu 1.", tags: ["passive"] },
   { id: 46, name: "Zimowa Kawaleria", threshold: 1, power: -1, text: "Zagranie: Jeżeli posiadasz w tej lokacji trzy inne karty o progu 1, możesz zagrać dwie dodatkowe karty w tej turze.", tags: ["play"] },
@@ -124,6 +124,11 @@ let botEnabledDraft = true;
 let selectedHandUid = null;
 let game = null;
 let botActing = false;
+let botTurnQueued = false;
+let musicEnabled = true;
+let audioContext = null;
+let musicTimer = null;
+let musicStep = 0;
 let builderFilters = {
   query: "",
   tag: "all",
@@ -243,6 +248,7 @@ function cardsFromSet(set) {
 }
 
 function renderMenu() {
+  stopMusic();
   app.innerHTML = `
     <section class="screen menu-screen">
       <div class="menu-shell">
@@ -265,6 +271,7 @@ function renderMenu() {
 }
 
 function renderInstructions() {
+  stopMusic();
   app.innerHTML = `
     <section class="screen">
       <div class="topbar">
@@ -306,6 +313,7 @@ function renderInstructions() {
 }
 
 function renderCredits() {
+  stopMusic();
   app.innerHTML = `
     <section class="screen">
       <div class="topbar">
@@ -330,7 +338,58 @@ function renderCredits() {
   app.querySelector(".backMenu").addEventListener("click", renderMenu);
 }
 
+function startMusic() {
+  if (!musicEnabled || musicTimer) return;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return;
+  audioContext ??= new AudioContextClass();
+  audioContext.resume?.();
+  musicStep = 0;
+  playMusicStep();
+  musicTimer = window.setInterval(playMusicStep, 430);
+}
+
+function stopMusic() {
+  if (!musicTimer) return;
+  window.clearInterval(musicTimer);
+  musicTimer = null;
+}
+
+function toggleMusic() {
+  musicEnabled = !musicEnabled;
+  if (musicEnabled && game) startMusic();
+  else stopMusic();
+  saveState();
+  if (game) renderGame();
+}
+
+function playMusicStep() {
+  if (!audioContext || audioContext.state === "closed") return;
+  const melody = [220, 261.63, 293.66, 329.63, 392, 329.63, 293.66, 261.63, 196, 246.94, 293.66, 349.23, 392, 349.23, 293.66, 246.94];
+  const bass = [110, 110, 98, 98, 130.81, 130.81, 146.83, 146.83];
+  const now = audioContext.currentTime;
+  const note = melody[musicStep % melody.length];
+  const root = bass[Math.floor(musicStep / 2) % bass.length];
+  playTone(note, now, 0.24, "triangle", 0.035);
+  if (musicStep % 2 === 0) playTone(root, now, 0.38, "sine", 0.025);
+  musicStep++;
+}
+
+function playTone(frequency, start, duration, type, volume) {
+  const osc = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(frequency, start);
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(volume, start + 0.025);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+  osc.connect(gain).connect(audioContext.destination);
+  osc.start(start);
+  osc.stop(start + duration + 0.03);
+}
+
 function renderBuilder() {
+  stopMusic();
   const p = deckDraft[selectedBuilderPlayer];
   const validA = deckDraft[0].main.size === 12 && deckDraft[0].extra.size === 3;
   const validB = deckDraft[1].main.size === 12 && deckDraft[1].extra.size === 3;
@@ -527,6 +586,7 @@ function startMatch() {
     players: [createMatchPlayer(0), createMatchPlayer(1)],
   };
   game.starter = game.turnPlayer;
+  startMusic();
   startRound();
 }
 
@@ -574,6 +634,7 @@ function startRound() {
 
 function beginTurn() {
   const p = game.players[game.turnPlayer];
+  selectedHandUid = null;
   p.playsLeft = 1 + p.nextTurnExtra;
   p.nextTurnExtra = 0;
   p.destroyedThisTurn = 0;
@@ -581,6 +642,7 @@ function beginTurn() {
   p.flamethrowerUsed = false;
   p.drawsThisTurn = 0;
   drawCard(game.turnPlayer, true);
+  if (isBotControlledTurn()) scheduleBotTurn(0);
   renderGame();
 }
 
@@ -656,6 +718,7 @@ function renderGame() {
           <span>Cmentarz <strong>${tp.grave.length}</strong></span>
         </div>
         <div class="actions">
+          <button id="toggleMusic">${musicEnabled ? "Muzyka: wł." : "Muzyka: wył."}</button>
           <button id="endTurn" class="primary" ${botTurn ? "disabled" : ""}>Zakończ turę</button>
           <button id="newMatch">Nowy mecz</button>
         </div>
@@ -697,10 +760,12 @@ function renderGame() {
       </div>
     </section>
   `;
+  app.querySelector("#toggleMusic").addEventListener("click", toggleMusic);
   if (!botTurn) app.querySelector("#endTurn").addEventListener("click", endTurn);
   app.querySelector("#newMatch").addEventListener("click", () => {
     game = null;
     localStorage.removeItem(STORAGE_KEY);
+    stopMusic();
     renderBuilder();
   });
   app.querySelectorAll("[data-hand]").forEach((el) => {
@@ -1301,9 +1366,13 @@ async function resolveEndTurnPassives(player) {
   }
 }
 
-function scheduleBotTurn() {
-  if (!game?.botEnabled || game.turnPlayer !== BOT_PLAYER || botActing) return;
-  window.setTimeout(runBotTurn, 450);
+function scheduleBotTurn(delay = 450) {
+  if (!game?.botEnabled || game.turnPlayer !== BOT_PLAYER || botActing || botTurnQueued) return;
+  botTurnQueued = true;
+  window.setTimeout(async () => {
+    botTurnQueued = false;
+    await runBotTurn();
+  }, delay);
 }
 
 function bestBotCard(player) {
@@ -1473,6 +1542,7 @@ function chooseBotExtra(options) {
 function showMatchEnd() {
   const result = game.scores[0] === game.scores[1] ? "Mecz kończy się remisem." : `${playerName(game.scores[0] > game.scores[1] ? 0 : 1)} wygrywa mecz.`;
   localStorage.removeItem(STORAGE_KEY);
+  stopMusic();
   app.innerHTML = `
     <section class="screen">
       <div class="topbar">
@@ -1507,6 +1577,7 @@ function saveState() {
     uid,
     selectedBuilderPlayer,
     botEnabledDraft,
+    musicEnabled,
     builderFilters,
     deckDraft: serializeDeckDraft(),
     game,
@@ -1523,6 +1594,7 @@ function restoreState() {
     uid = state.uid || 1;
     selectedBuilderPlayer = state.selectedBuilderPlayer || 0;
     botEnabledDraft = state.botEnabledDraft ?? true;
+    musicEnabled = state.musicEnabled ?? true;
     selectedHandUid = state.selectedHandUid || null;
     builderFilters = { ...builderFilters, ...(state.builderFilters || {}) };
     if (Array.isArray(state.deckDraft)) {

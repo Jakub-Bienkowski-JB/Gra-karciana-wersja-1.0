@@ -569,6 +569,11 @@ label {
   margin: 0;
   font-size: 0.8rem;
   line-height: 1.1;
+  text-align: center;
+}
+
+.mini-card .stats {
+  justify-content: center;
 }
 
 .mini-card p {
