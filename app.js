@@ -54,7 +54,7 @@ const CARDS = [
 const TOKENS = {
   horse: { id: "token-horse", name: "Bojowy Koń", threshold: 1, power: 1, text: "Token.", tags: [] },
   totem: { id: "token-totem", name: "Totem", threshold: 1, power: 1, text: "Token.", tags: [] },
-  yeti: { id: "token-yeti", name: "Wściekły Yeti", threshold: 1, power: 10, text: "Token.", tags: [] },
+  yeti: { id: "token-yeti", name: "Wściekły Yeti", threshold: 5, power: 10, text: "Token.", tags: [] },
   spider: { id: "token-spider", name: "Pająk", threshold: 1, power: 2, text: "Token.", tags: [] },
 };
 
@@ -81,9 +81,38 @@ const CARD_IMAGES = {
   20: "Tik-Tak.png",
   21: "Złodziej Kart.png",
   22: "Mroźny Kowal.png",
+  23: "Zdradliwe Życzenie.png",
+  24: "Oświecony Ilustrator.png",
+  25: "Złośliwy Chochlik.png",
+  26: "Kusznik Wyborowy.png",
+  27: "Zagubiona Dusza.png",
+  28: "Obserwator.png",
+  29: "Łowca dezerterów.png",
+  30: "Ogromna armata.png",
+  31: "Hiena Cmentarna.png",
+  32: "Szalony Alchemik.png",
+  33: "Krowi Desant.png",
+  34: "Pajęczy kokon.png",
+  35: "Miotacz ognia.png",
+  36: "Zapracowany farmer.png",
+  37: "Przenośna niszczarka.png",
+  38: "Wściekły byk.png",
+  39: "Cyklamenowa Kostucha.png",
+  40: "Napędzany chomik.png",
+  41: "Cierpliwy Mnich.png",
+  42: "Hojny Baron.png",
+  43: "Lustrzany Rycerz.png",
+  44: "Mag wiecznej zimy.png",
+  45: "Armia Zimowe uderzenie.png",
+  46: "Zimowa kawaleria.png",
+  47: "Obozowy kucharz.png",
+  48: "Siewca Śmierci.png",
+  49: "Dzwonnik zwycięstwa.png",
+  50: "Wilkołak z Wiśniowego Lasu.png",
   "token-horse": "Minion Rogatej Bestii.png",
   "token-totem": "Minion Szmaragdowego Druida.png",
   "token-yeti": "Minion Radosnego Pingwinka.png",
+  "token-spider": "Minion Pajęczego kokona.png",
 };
 
 const app = document.querySelector("#app");
@@ -648,7 +677,7 @@ function renderHandCard(card) {
         ${renderTagBadge(card)}
       </div>
       <div class="stats">
-        <span class="pill threshold">Próg ${effectiveThreshold(game.turnPlayer, card)}</span>
+        <span class="pill threshold">Próg ${displayThreshold(game.turnPlayer, card)}</span>
         <span class="pill power">Moc ${card.basePower}</span>
       </div>
       <p>${card.text}</p>
@@ -679,32 +708,43 @@ function cardPower(card) {
   return value;
 }
 
-function effectiveThreshold(player, card) {
+function effectiveThreshold(player, card, options = {}) {
   let value = card.baseThreshold + card.thresholdMod;
   if (card.defId === 18) value -= allBoardCards(player).length;
   allBoardCards(player).forEach((boardCard) => {
     if (!boardCard.silenced && boardCard.defId === 3) value -= 1;
   });
-  if (game.turnPlayer === player && game.players[player].nextThresholdBonus && selectedHandUid === card.uid) value -= game.players[player].nextThresholdBonus;
+  const useNextBonus = options.useNextBonus ?? selectedHandUid === card.uid;
+  if (game.turnPlayer === player && game.players[player].nextThresholdBonus && useNextBonus) value -= game.players[player].nextThresholdBonus;
   return Math.max(1, value);
 }
 
+function displayThreshold(player, card) {
+  const selectedValue = effectiveThreshold(player, card);
+  const previewValue = effectiveThreshold(player, card, { useNextBonus: true });
+  return Math.min(selectedValue, previewValue);
+}
+
 function canPlayCard(player, card) {
-  return game.turnPlayer === player && game.players[player].playsLeft > 0 && effectiveThreshold(player, card) <= game.roundTurn;
+  return game.turnPlayer === player && game.players[player].playsLeft > 0 && displayThreshold(player, card) <= game.roundTurn;
 }
 
 async function playSelected(targetPlayer, loc) {
   if (!selectedHandUid) return;
   const player = game.turnPlayer;
+  const card = game.players[player].hand.find((c) => c.uid === selectedHandUid);
+  await playCardFromHand(player, card, targetPlayer, loc);
+}
+
+async function playCardFromHand(player, card, targetPlayer, loc) {
   const p = game.players[player];
-  const card = p.hand.find((c) => c.uid === selectedHandUid);
   if (!card || !canPlayCard(player, card)) return;
   if (!canPlayTo(targetPlayer, loc, card)) {
     log(`Brak miejsca w lokacji ${loc + 1}.`);
     renderGame();
     return;
   }
-  const lowered = effectiveThreshold(player, card) < card.baseThreshold;
+  const lowered = displayThreshold(player, card) < card.baseThreshold;
   p.hand = p.hand.filter((c) => c.uid !== card.uid);
   card.controller = targetPlayer;
   game.players[targetPlayer].locations[loc].push(card);
@@ -927,7 +967,7 @@ async function discardCard(player, card) {
   log(`${playerName(player)} odrzuca ${card.name}.`);
   if (!card.silenced) {
     if (card.defId === 33) {
-      const loc = await chooseLocation(player, "Krowi desant: wybierz lokację.");
+      const loc = await chooseLocation(player, "Krowi desant: wybierz lokację.", player, card);
       if (loc !== null) summon(player, loc, card);
       return;
     }
@@ -1038,7 +1078,7 @@ async function triggerDestroyAbility(player, loc) {
 async function mirrorKnight(player) {
   const card = await discardFromHand(player, "Lustrzany Rycerz: odrzuć kartę.");
   if (card && card.baseThreshold === 1) {
-    const loc = await chooseLocation(player, "Wyłóż odrzuconą kartę do lokacji.");
+    const loc = await chooseLocation(player, "Wyłóż odrzuconą kartę do lokacji.", player, card);
     const graveIndex = game.players[player].grave.findIndex((c) => c.uid === card.uid);
     if (loc !== null && graveIndex >= 0) {
       const [fromGrave] = game.players[player].grave.splice(graveIndex, 1);
@@ -1050,7 +1090,7 @@ async function mirrorKnight(player) {
 async function playTopDeck(player) {
   const card = game.players[player].deck.shift();
   if (!card) return;
-  const loc = await chooseLocation(player, "Dzwonnik zwycięstwa: wybierz lokację.");
+  const loc = await chooseLocation(player, `Dzwonnik zwycięstwa wykłada: ${card.name}. Wybierz lokację.`, player, card);
   if (loc !== null && summon(player, loc, card)) return;
   game.players[player].grave.unshift(card);
 }
@@ -1062,15 +1102,19 @@ function collectBoardChoices(player, loc) {
   return result;
 }
 
-function chooseLocation(player, title, chooserPlayer = player) {
+function chooseLocation(player, title, chooserPlayer = player, card = { defId: 0 }) {
   const choices = [0, 1, 2]
-    .filter((loc) => hasSpace(player, loc, { defId: 0 }))
+    .filter((loc) => hasSpace(player, loc, card))
     .map((loc) => ({ label: `Lokacja ${loc + 1}`, value: loc }));
-  return choose(title, choices, true, chooserPlayer);
+  return choose(title, choices, false, chooserPlayer);
 }
 
 function choose(title, choices, allowCancel, chooserPlayer = game?.turnPlayer ?? 0) {
   return new Promise((resolve) => {
+    if (!choices.length) {
+      resolve(null);
+      return;
+    }
     if (game?.botEnabled && chooserPlayer === BOT_PLAYER) {
       resolve(choices[0]?.value ?? null);
       return;
@@ -1080,8 +1124,7 @@ function choose(title, choices, allowCancel, chooserPlayer = game?.turnPlayer ??
       <div class="dialog">
         <h2>${title}</h2>
         <div class="choice-grid">
-          ${choices.map((choice, index) => `<button data-choice="${index}">${choice.label}</button>`).join("")}
-          ${allowCancel ? `<button data-cancel="1">Pomiń</button>` : ""}
+          ${choices.map((choice, index) => `<button class="${choiceCard(choice) ? "choice-card-button" : ""}" data-choice="${index}">${renderChoice(choice)}</button>`).join("")}
         </div>
       </div>
     `;
@@ -1091,12 +1134,37 @@ function choose(title, choices, allowCancel, chooserPlayer = game?.turnPlayer ??
         resolve(choices[Number(button.dataset.choice)].value);
       });
     });
-    const cancel = modal.querySelector("[data-cancel]");
-    if (cancel) cancel.addEventListener("click", () => {
-      modal.classList.add("hidden");
-      resolve(null);
-    });
   });
+}
+
+function choiceCard(choice) {
+  const value = choice.value;
+  if (!value) return null;
+  if (value.card) return value.card;
+  if (value.defId || value.defId === 0) return value;
+  return null;
+}
+
+function renderChoice(choice) {
+  const card = choiceCard(choice);
+  if (!card) return escapeHtml(choice.label);
+  return `
+    <span class="choice-card">
+      ${renderCardArt(card.defId, card.name, "small")}
+      <span class="choice-card-body">
+        <strong>${escapeHtml(choice.label)}</strong>
+        <span class="stats">
+          <span class="pill threshold">Próg ${card.baseThreshold}</span>
+          <span class="pill power">Moc ${cardPowerForChoice(card)}</span>
+        </span>
+        <span>${escapeHtml(card.silenced ? "Wyciszona" : card.text)}</span>
+      </span>
+    </span>
+  `;
+}
+
+function cardPowerForChoice(card) {
+  return game && findCardLocation(card.uid) ? cardPower(card) : card.basePower + card.powerMod;
 }
 
 async function endTurn() {
@@ -1139,8 +1207,8 @@ function bestBotCard(player) {
   return game.players[player].hand
     .filter((card) => canPlayCard(player, card))
     .sort((a, b) => {
-      const scoreA = cardPowerPreview(a) - effectiveThreshold(player, a) * 0.35;
-      const scoreB = cardPowerPreview(b) - effectiveThreshold(player, b) * 0.35;
+      const scoreA = cardPowerPreview(a) - displayThreshold(player, a) * 0.35;
+      const scoreB = cardPowerPreview(b) - displayThreshold(player, b) * 0.35;
       return scoreB - scoreA;
     })[0] || null;
 }
@@ -1170,16 +1238,18 @@ async function runBotTurn() {
   botActing = true;
   try {
     let guard = 0;
+    let playedAny = false;
     while (game && game.turnPlayer === BOT_PLAYER && game.players[BOT_PLAYER].playsLeft > 0 && guard < 5) {
       guard++;
       const card = bestBotCard(BOT_PLAYER);
       if (!card) break;
       const target = bestBotTarget(BOT_PLAYER, card);
       if (!target) break;
-      selectedHandUid = card.uid;
-      await playSelected(target.player, target.loc);
+      await playCardFromHand(BOT_PLAYER, card, target.player, target.loc);
+      playedAny = true;
       await wait(220);
     }
+    if (!playedAny && game && game.turnPlayer === BOT_PLAYER) log("Bot pasuje: brak możliwego zagrania.");
     if (game && game.turnPlayer === BOT_PLAYER) await endTurn();
   } finally {
     botActing = false;
