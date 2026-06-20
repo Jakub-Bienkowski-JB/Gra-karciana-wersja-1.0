@@ -126,9 +126,15 @@ let game = null;
 let botActing = false;
 let botTurnQueued = false;
 let musicEnabled = true;
+let sfxEnabled = true;
 let audioContext = null;
 let musicTimer = null;
 let musicStep = 0;
+const activeFx = {
+  cards: new Map(),
+  locs: new Map(),
+  hands: new Map(),
+};
 let builderFilters = {
   query: "",
   tag: "all",
@@ -340,13 +346,18 @@ function renderCredits() {
 
 function startMusic() {
   if (!musicEnabled || musicTimer) return;
-  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextClass) return;
-  audioContext ??= new AudioContextClass();
-  audioContext.resume?.();
+  if (!ensureAudio()) return;
   musicStep = 0;
   playMusicStep();
   musicTimer = window.setInterval(playMusicStep, 430);
+}
+
+function ensureAudio() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return false;
+  audioContext ??= new AudioContextClass();
+  audioContext.resume?.();
+  return true;
 }
 
 function stopMusic() {
@@ -359,6 +370,12 @@ function toggleMusic() {
   musicEnabled = !musicEnabled;
   if (musicEnabled && game) startMusic();
   else stopMusic();
+  saveState();
+  if (game) renderGame();
+}
+
+function toggleSfx() {
+  sfxEnabled = !sfxEnabled;
   saveState();
   if (game) renderGame();
 }
@@ -386,6 +403,73 @@ function playTone(frequency, start, duration, type, volume) {
   osc.connect(gain).connect(audioContext.destination);
   osc.start(start);
   osc.stop(start + duration + 0.03);
+}
+
+function triggerEffect(type, target = {}) {
+  playSfx(type);
+  markFx(type, target);
+}
+
+function markFx(type, target) {
+  const token = `${type}-${Date.now()}-${Math.random()}`;
+  if (target.cardUid) activeFx.cards.set(target.cardUid, { type, token });
+  if (target.player !== undefined && target.loc !== undefined) activeFx.locs.set(`${target.player}-${target.loc}`, { type, token });
+  if (target.player !== undefined) activeFx.hands.set(target.player, { type, token });
+  window.setTimeout(() => {
+    for (const map of [activeFx.cards, activeFx.locs, activeFx.hands]) {
+      for (const [key, value] of map.entries()) {
+        if (value.token === token) map.delete(key);
+      }
+    }
+  }, 650);
+}
+
+function fxClass(kind, key) {
+  const item = activeFx[kind].get(key);
+  return item ? `fx-${item.type}` : "";
+}
+
+function playSfx(type) {
+  if (!sfxEnabled || !ensureAudio()) return;
+  const now = audioContext.currentTime;
+  switch (type) {
+    case "play":
+      playTone(440, now, 0.08, "triangle", 0.04);
+      playTone(660, now + 0.05, 0.09, "square", 0.018);
+      break;
+    case "draw":
+      playTone(740, now, 0.06, "triangle", 0.028);
+      playTone(980, now + 0.055, 0.07, "triangle", 0.02);
+      break;
+    case "destroy":
+      playTone(120, now, 0.12, "sawtooth", 0.045);
+      playTone(80, now + 0.05, 0.16, "square", 0.026);
+      break;
+    case "discard":
+      playTone(180, now, 0.08, "square", 0.028);
+      break;
+    case "bounce":
+      playTone(520, now, 0.08, "triangle", 0.025);
+      playTone(310, now + 0.06, 0.1, "triangle", 0.022);
+      break;
+    case "silence":
+      playTone(165, now, 0.18, "sine", 0.03);
+      break;
+    case "buff":
+      playTone(392, now, 0.08, "triangle", 0.026);
+      playTone(493.88, now + 0.07, 0.08, "triangle", 0.026);
+      playTone(587.33, now + 0.14, 0.1, "triangle", 0.026);
+      break;
+    case "turn":
+      playTone(220, now, 0.18, "sine", 0.025);
+      playTone(440, now + 0.12, 0.16, "sine", 0.018);
+      break;
+    case "win":
+      playTone(392, now, 0.12, "triangle", 0.03);
+      playTone(523.25, now + 0.1, 0.12, "triangle", 0.03);
+      playTone(659.25, now + 0.2, 0.18, "triangle", 0.03);
+      break;
+  }
 }
 
 function renderBuilder() {
@@ -686,6 +770,7 @@ function drawCard(player, countForTurn = true) {
   const card = p.deck.shift();
   moveCardToPrivateZone(card, player);
   p.hand.push(card);
+  if (countForTurn) triggerEffect("draw", { player });
   if (countForTurn) {
     p.drawsThisTurn++;
     if (p.drawsThisTurn === 2 && hasOnBoard(player, 6)) {
@@ -719,6 +804,7 @@ function renderGame() {
         </div>
         <div class="actions">
           <button id="toggleMusic">${musicEnabled ? "Muzyka: wł." : "Muzyka: wył."}</button>
+          <button id="toggleSfx">${sfxEnabled ? "Dźwięki: wł." : "Dźwięki: wył."}</button>
           <button id="endTurn" class="primary" ${botTurn ? "disabled" : ""}>Zakończ turę</button>
           <button id="newMatch">Nowy mecz</button>
         </div>
@@ -734,7 +820,7 @@ function renderGame() {
           <section class="panel">
             <h2>Ręka: ${playerName(game.turnPlayer)} <span class="meta">Zagrania: ${playsLeft}, talia: ${tp.deck.length}, cmentarz: ${tp.grave.length}</span></h2>
             ${botTurn ? "<p class='hint'>Bot wykonuje turę. Poczekaj na rozpatrzenie akcji.</p>" : ""}
-            <div class="hand">${tp.hand.map((card) => renderHandCard(card)).join("") || "<p class='hint'>Brak kart na ręce.</p>"}</div>
+            <div class="hand ${fxClass("hands", game.turnPlayer)}">${tp.hand.map((card) => renderHandCard(card)).join("") || "<p class='hint'>Brak kart na ręce.</p>"}</div>
           </section>
         </div>
         <aside class="sidepanel">
@@ -761,6 +847,7 @@ function renderGame() {
     </section>
   `;
   app.querySelector("#toggleMusic").addEventListener("click", toggleMusic);
+  app.querySelector("#toggleSfx").addEventListener("click", toggleSfx);
   if (!botTurn) app.querySelector("#endTurn").addEventListener("click", endTurn);
   app.querySelector("#newMatch").addEventListener("click", () => {
     game = null;
@@ -799,19 +886,19 @@ function renderLocation(i) {
   const canHumanTarget = !isBotControlledTurn();
   return `
     <section class="location ${leadClass}">
-      <div class="zone ${canHumanTarget && canPlayTo(1, i) ? "legal-target" : ""}" data-player="1" data-drop="${i}">${game.players[1].locations[i].map(renderBoardCard).join("")}</div>
+      <div class="zone ${fxClass("locs", `1-${i}`)} ${canHumanTarget && canPlayTo(1, i) ? "legal-target" : ""}" data-player="1" data-drop="${i}">${game.players[1].locations[i].map(renderBoardCard).join("")}</div>
       <div class="loc-title">
         <strong>Lokacja ${i + 1}</strong>
         <span>${a} : ${b}</span>
       </div>
-      <div class="zone ${canHumanTarget && canPlayTo(0, i) ? "legal-target" : ""}" data-player="0" data-drop="${i}">${game.players[0].locations[i].map(renderBoardCard).join("")}</div>
+      <div class="zone ${fxClass("locs", `0-${i}`)} ${canHumanTarget && canPlayTo(0, i) ? "legal-target" : ""}" data-player="0" data-drop="${i}">${game.players[0].locations[i].map(renderBoardCard).join("")}</div>
     </section>
   `;
 }
 
 function renderBoardCard(card) {
   return `
-    <article class="mini-card ${card.silenced ? "silenced" : ""}">
+    <article class="mini-card ${card.silenced ? "silenced" : ""} ${fxClass("cards", card.uid)}">
       ${renderCardArt(card.defId, card.name, "board")}
       <h4>${card.name}</h4>
       <div class="stats">
@@ -905,6 +992,7 @@ async function playCardFromHand(player, card, targetPlayer, loc) {
   card.owner = targetPlayer;
   card.controller = targetPlayer;
   game.players[targetPlayer].locations[loc].push(card);
+  triggerEffect("play", { cardUid: card.uid, player: targetPlayer, loc });
   p.playsLeft--;
   selectedHandUid = null;
   log(`${playerName(player)} zagrywa ${card.name} do lokacji ${loc + 1}.`);
@@ -954,7 +1042,10 @@ async function resolvePlayEffect(card, loc, actor) {
       await bounceCard(enemy, loc, "Wybierz kartę przeciwnika do cofnięcia.");
       break;
     case 4:
-      if (!p.deck.length) p.locBonus = p.locBonus.map((v) => v + 5);
+      if (!p.deck.length) {
+        p.locBonus = p.locBonus.map((v) => v + 5);
+        for (let l = 0; l < 3; l++) triggerEffect("buff", { player: actor, loc: l });
+      }
       break;
     case 5:
       summon(actor, loc, cloneDef(TOKENS.horse, actor));
@@ -981,6 +1072,7 @@ async function resolvePlayEffect(card, loc, actor) {
       break;
     case 20:
       p.nextThresholdBonus += 1;
+      triggerEffect("buff", { cardUid: card.uid });
       break;
     case 21:
       p.nextTurnExtra++;
@@ -1012,6 +1104,7 @@ async function resolvePlayEffect(card, loc, actor) {
       p.hand = [];
       for (const discardedCard of discarded) await discardCard(actor, discardedCard);
       card.powerMod += discarded.length * 2;
+      triggerEffect("buff", { cardUid: card.uid });
       break;
     }
     case 41:
@@ -1064,6 +1157,7 @@ async function destroyBoardCard(cardUid) {
   if (!pos) return;
   const p = game.players[pos.player];
   const [card] = p.locations[pos.loc].splice(pos.index, 1);
+  triggerEffect("destroy", { player: pos.player, loc: pos.loc });
   if (!card.silenced) await resolveDestroyEffect(card, pos.loc, pos.player);
   moveCardToPrivateZone(card, pos.player);
   game.players[pos.player].grave.unshift(card);
@@ -1103,6 +1197,7 @@ async function resolveDestroyEffect(card, loc, controller) {
     case 47:
       game.players[controller].locations[loc].forEach((c) => {
         if (!c.silenced) c.powerMod += 2;
+        if (!c.silenced) triggerEffect("buff", { cardUid: c.uid, player: controller, loc });
       });
       break;
   }
@@ -1112,6 +1207,7 @@ function summon(player, loc, card) {
   if (!hasSpace(player, loc, card)) return false;
   card.controller = player;
   game.players[player].locations[loc].push(card);
+  triggerEffect("play", { cardUid: card.uid, player, loc });
   log(`${playerName(player)} wykłada ${card.name} do lokacji ${loc + 1}.`);
   return true;
 }
@@ -1119,6 +1215,7 @@ function summon(player, loc, card) {
 async function discardCard(player, card) {
   const p = game.players[player];
   p.hand = p.hand.filter((c) => c.uid !== card.uid);
+  triggerEffect("discard", { player });
   log(`${playerName(player)} odrzuca ${card.name}.`);
   if (!card.silenced) {
     if (card.defId === 33) {
@@ -1130,6 +1227,7 @@ async function discardCard(player, card) {
     if (card.defId === 38) await discardFromHand(opponent(player), "Groźny byk: przeciwnik odrzuca kartę.");
     if (card.defId === 40) {
       p.locBonus = p.locBonus.map((v) => v + 1);
+      for (let l = 0; l < 3; l++) triggerEffect("buff", { player, loc: l });
       p.deck.push(moveCardToPrivateZone(card, player));
       return;
     }
@@ -1151,6 +1249,7 @@ async function bounceCard(player, loc, title, chooserPlayer = game?.turnPlayer ?
   const item = await choose(title, choices.map((x) => ({ label: `${x.card.name} (L${x.loc + 1})`, value: x })), true, chooserPlayer);
   if (!item) return;
   game.players[player].locations[item.loc] = game.players[player].locations[item.loc].filter((c) => c.uid !== item.card.uid);
+  triggerEffect("bounce", { player, loc: item.loc });
   game.players[player].hand.push(moveCardToPrivateZone(item.card, player));
 }
 
@@ -1164,6 +1263,7 @@ async function silenceChosen(player, loc) {
   item.card.silenced = true;
   item.card.powerMod = 0;
   item.card.thresholdMod = 0;
+  triggerEffect("silence", { cardUid: item.card.uid, player, loc });
 }
 
 async function tutor(player, count) {
@@ -1336,6 +1436,7 @@ function cardPowerForChoice(card) {
 }
 
 async function endTurn() {
+  triggerEffect("turn", {});
   await resolveEndTurnPassives(game.turnPlayer);
   if (game.turnPlayer === opponent(game.roundStarter)) game.roundTurn++;
   if (game.roundTurn > 6) {
@@ -1353,11 +1454,15 @@ async function resolveEndTurnPassives(player) {
     if (card.defId === 30) {
       const loc = Math.floor(Math.random() * 3);
       game.players[player].locBonus[loc] += 1;
+      triggerEffect("buff", { player, loc });
       log(`Ogromna armata wzmacnia lokację ${loc + 1}.`);
     }
     if (card.defId === 37 && game.players[player].hand.length) {
       const discarded = await discardFromHand(player, "Przenośna niszczarka: odrzuć kartę.");
-      if (discarded) card.powerMod += 1;
+      if (discarded) {
+        card.powerMod += 1;
+        triggerEffect("buff", { cardUid: card.uid, player, loc: item.loc });
+      }
     }
     if (card.defId === 45) {
       const victims = [...game.players[player].locations[item.loc]].filter((c) => c.baseThreshold !== 1);
@@ -1367,10 +1472,14 @@ async function resolveEndTurnPassives(player) {
 }
 
 function scheduleBotTurn(delay = 450) {
-  if (!game?.botEnabled || game.turnPlayer !== BOT_PLAYER || botActing || botTurnQueued) return;
+  if (!game?.botEnabled || game.turnPlayer !== BOT_PLAYER || botTurnQueued) return;
   botTurnQueued = true;
   window.setTimeout(async () => {
     botTurnQueued = false;
+    if (botActing) {
+      scheduleBotTurn(80);
+      return;
+    }
     await runBotTurn();
   }, delay);
 }
@@ -1461,6 +1570,7 @@ async function finishRound() {
   } else {
     game.scores[winner]++;
     log(`${playerName(winner)} wygrywa partię ${game.matchRound}.`);
+    triggerEffect("win", {});
   }
   await showRoundSummary(winner, powersA, powersB);
   if (game.scores[0] >= 3 || game.scores[1] >= 3 || game.matchRound >= 4) {
@@ -1578,6 +1688,7 @@ function saveState() {
     selectedBuilderPlayer,
     botEnabledDraft,
     musicEnabled,
+    sfxEnabled,
     builderFilters,
     deckDraft: serializeDeckDraft(),
     game,
@@ -1595,6 +1706,7 @@ function restoreState() {
     selectedBuilderPlayer = state.selectedBuilderPlayer || 0;
     botEnabledDraft = state.botEnabledDraft ?? true;
     musicEnabled = state.musicEnabled ?? true;
+    sfxEnabled = state.sfxEnabled ?? true;
     selectedHandUid = state.selectedHandUid || null;
     builderFilters = { ...builderFilters, ...(state.builderFilters || {}) };
     if (Array.isArray(state.deckDraft)) {
