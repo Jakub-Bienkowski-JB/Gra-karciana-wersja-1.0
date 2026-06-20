@@ -742,7 +742,7 @@ function canPlayTo(targetPlayer, loc, card = currentHandCard()) {
 }
 
 function isBotControlledTurn() {
-  return Boolean(game?.botEnabled && game.turnPlayer === BOT_PLAYER);
+  return Boolean(game?.screen === "game" && game.botEnabled && game.turnPlayer === BOT_PLAYER);
 }
 
 function playPreview() {
@@ -1436,6 +1436,7 @@ function cardPowerForChoice(card) {
 }
 
 async function endTurn() {
+  if (game?.screen !== "game") return;
   triggerEffect("turn", {});
   await resolveEndTurnPassives(game.turnPlayer);
   if (game.turnPlayer === opponent(game.roundStarter)) game.roundTurn++;
@@ -1472,14 +1473,10 @@ async function resolveEndTurnPassives(player) {
 }
 
 function scheduleBotTurn(delay = 450) {
-  if (!game?.botEnabled || game.turnPlayer !== BOT_PLAYER || botTurnQueued) return;
+  if (game?.screen !== "game" || !game.botEnabled || game.turnPlayer !== BOT_PLAYER || botActing || botTurnQueued) return;
   botTurnQueued = true;
   window.setTimeout(async () => {
     botTurnQueued = false;
-    if (botActing) {
-      scheduleBotTurn(80);
-      return;
-    }
     await runBotTurn();
   }, delay);
 }
@@ -1515,12 +1512,12 @@ function bestBotTarget(player, card) {
 }
 
 async function runBotTurn() {
-  if (!game?.botEnabled || game.turnPlayer !== BOT_PLAYER || botActing) return;
+  if (game?.screen !== "game" || !game.botEnabled || game.turnPlayer !== BOT_PLAYER || botActing) return;
   botActing = true;
   try {
     let guard = 0;
     let playedAny = false;
-    while (game && game.turnPlayer === BOT_PLAYER && game.players[BOT_PLAYER].playsLeft > 0 && guard < 5) {
+    while (game?.screen === "game" && game.turnPlayer === BOT_PLAYER && game.players[BOT_PLAYER].playsLeft > 0 && guard < 5) {
       guard++;
       const card = bestBotCard(BOT_PLAYER);
       if (!card) break;
@@ -1530,10 +1527,11 @@ async function runBotTurn() {
       playedAny = true;
       await wait(220);
     }
-    if (!playedAny && game && game.turnPlayer === BOT_PLAYER) log("Bot pasuje: brak możliwego zagrania.");
-    if (game && game.turnPlayer === BOT_PLAYER) await endTurn();
+    if (!playedAny && game?.screen === "game" && game.turnPlayer === BOT_PLAYER) log("Bot pasuje: brak możliwego zagrania.");
+    if (game?.screen === "game" && game.turnPlayer === BOT_PLAYER) await endTurn();
   } finally {
     botActing = false;
+    if (game?.screen === "game" && game.botEnabled && game.turnPlayer === BOT_PLAYER && !botTurnQueued) scheduleBotTurn(0);
   }
 }
 
@@ -1650,6 +1648,8 @@ function chooseBotExtra(options) {
 }
 
 function showMatchEnd() {
+  game.screen = "matchEnd";
+  botTurnQueued = false;
   const result = game.scores[0] === game.scores[1] ? "Mecz kończy się remisem." : `${playerName(game.scores[0] > game.scores[1] ? 0 : 1)} wygrywa mecz.`;
   localStorage.removeItem(STORAGE_KEY);
   stopMusic();
