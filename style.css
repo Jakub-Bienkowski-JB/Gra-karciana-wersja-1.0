@@ -591,6 +591,18 @@ label {
   gap: 8px;
 }
 
+.round-summary {
+  width: min(1180px, 100%);
+}
+
+.summary-board {
+  margin: 12px 0;
+}
+
+.round-summary .actions {
+  justify-content: flex-end;
+}
+
 .danger {
   color: var(--bad);
 }

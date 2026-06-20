@@ -9,7 +9,7 @@ const CARDS = [
   { id: 8, name: "Szmaragdowy Druid", threshold: 6, power: 0, text: "Zagranie: Zapełnij wszystkie miejsca w twoich lokacjach totemami z mocą 1.", tags: ["play"] },
   { id: 9, name: "Żywy Wulkan", threshold: 4, power: 3, text: "Zniszczenie: Odrzuć dowolną kartę. Dobierz dwie karty z talii.", tags: ["destroy"] },
   { id: 10, name: "Oszalały Górnik", threshold: 3, power: 2, text: "Zagranie: Dobierz dowolną kartę z twojej talii. Następnie ją przetasuj.", tags: ["play"] },
-  { id: 11, name: "Zabójcza Strzała", threshold: 4, power: 3, text: "Zagranie: Zniszcz kartę przeciwnika z naprzeciwka.", tags: ["play"] },
+  { id: 11, name: "Zabójcza Strzała", threshold: 4, power: 3, text: "Zagranie: Zniszcz kartę przeciwnika z najwyższą mocą w tej lokacji.", tags: ["play"] },
   { id: 12, name: "Ożywieniec", threshold: 1, power: 3, text: "Zniszczenie: Dobierz kartę ze spodu cmentarza.", tags: ["destroy"] },
   { id: 13, name: "Radosny Pingwin", threshold: 5, power: 1, text: "Zniszczenie: Przyzwij w tej lokacji wściekłego Yeti z mocą 10.", tags: ["destroy"] },
   { id: 14, name: "Słoneczny Gigant", threshold: 5, power: 10, text: "Pasywka: Zajmuje wszystkie cztery miejsca w lokacji.", tags: ["passive"] },
@@ -91,6 +91,7 @@ const modal = document.querySelector("#modal");
 const STORAGE_KEY = "gra-karciana-v1-state";
 let uid = 1;
 let selectedBuilderPlayer = 0;
+let botEnabledDraft = true;
 let selectedHandUid = null;
 let game = null;
 let botActing = false;
@@ -153,10 +154,24 @@ function cardImage(id) {
   return file ? `ikony/${encodeURIComponent(file)}` : "";
 }
 
+function retryCardImage(img) {
+  const retryCount = Number(img.dataset.retryCount || 0);
+  if (retryCount >= 1) {
+    img.replaceWith(Object.assign(document.createElement("div"), {
+      className: img.className + " placeholder",
+      textContent: img.alt.slice(0, 1),
+    }));
+    return;
+  }
+  img.dataset.retryCount = String(retryCount + 1);
+  const separator = img.src.includes("?") ? "&" : "?";
+  img.src = `${img.src}${separator}retry=${Date.now()}`;
+}
+
 function renderCardArt(id, name, size = "large") {
   const src = cardImage(id);
   if (!src) return `<div class="card-art card-art-${size} placeholder">${name.slice(0, 1)}</div>`;
-  return `<img class="card-art card-art-${size}" src="${src}" alt="${name}" loading="lazy" />`;
+  return `<img class="card-art card-art-${size}" src="${src}" alt="${name}" loading="lazy" onerror="retryCardImage(this)" />`;
 }
 
 function opponent(index) {
@@ -231,7 +246,7 @@ function renderBuilder() {
             <button id="clearDeck">Wyczyść gracza</button>
           </div>
           <label class="toggle-row">
-            <input id="botToggle" type="checkbox" checked />
+            <input id="botToggle" type="checkbox" ${botEnabledDraft ? "checked" : ""} />
             Bot gra jako Gracz B
           </label>
           <section class="deck-preview">
@@ -296,6 +311,10 @@ function renderBuilder() {
   app.querySelector("#sampleDecks").addEventListener("click", () => makeSampleDecks(false));
   app.querySelector("#quickMatch").addEventListener("click", () => makeSampleDecks(true));
   app.querySelector("#startGame").addEventListener("click", startMatch);
+  app.querySelector("#botToggle").addEventListener("change", (event) => {
+    botEnabledDraft = event.target.checked;
+    saveState();
+  });
   app.querySelector("#cardSearch").addEventListener("input", (event) => {
     const query = event.target.value;
     builderFilters.query = query;
@@ -374,7 +393,8 @@ function makeSampleDecks(startImmediately = false) {
 
 function startMatch() {
   localStorage.removeItem(STORAGE_KEY);
-  const botEnabled = app.querySelector("#botToggle")?.checked ?? true;
+  const botEnabled = app.querySelector("#botToggle")?.checked ?? botEnabledDraft;
+  botEnabledDraft = botEnabled;
   game = {
     screen: "game",
     matchRound: 1,
@@ -456,6 +476,10 @@ function canPlayTo(targetPlayer, loc, card = currentHandCard()) {
   return hasSpace(targetPlayer, loc, card);
 }
 
+function isBotControlledTurn() {
+  return Boolean(game?.botEnabled && game.turnPlayer === BOT_PLAYER);
+}
+
 function playPreview() {
   const card = currentHandCard();
   if (!card) return `<p class="hint">Wybierz kartę z ręki, aby zobaczyć możliwe lokacje i podgląd zagrania.</p>`;
@@ -498,6 +522,7 @@ function log(text) {
 function renderGame() {
   const tp = game.players[game.turnPlayer];
   const playsLeft = tp.playsLeft;
+  const botTurn = isBotControlledTurn();
   app.innerHTML = `
     <section class="screen">
       <div class="topbar gamebar">
@@ -511,7 +536,7 @@ function renderGame() {
           <span>Cmentarz <strong>${tp.grave.length}</strong></span>
         </div>
         <div class="actions">
-          <button id="endTurn" class="primary">Zakończ turę</button>
+          <button id="endTurn" class="primary" ${botTurn ? "disabled" : ""}>Zakończ turę</button>
           <button id="newMatch">Nowy mecz</button>
         </div>
       </div>
@@ -525,6 +550,7 @@ function renderGame() {
           </div>
           <section class="panel">
             <h2>Ręka: ${playerName(game.turnPlayer)} <span class="meta">Zagrania: ${playsLeft}, talia: ${tp.deck.length}, cmentarz: ${tp.grave.length}</span></h2>
+            ${botTurn ? "<p class='hint'>Bot wykonuje turę. Poczekaj na rozpatrzenie akcji.</p>" : ""}
             <div class="hand">${tp.hand.map((card) => renderHandCard(card)).join("") || "<p class='hint'>Brak kart na ręce.</p>"}</div>
           </section>
         </div>
@@ -551,7 +577,7 @@ function renderGame() {
       </div>
     </section>
   `;
-  app.querySelector("#endTurn").addEventListener("click", endTurn);
+  if (!botTurn) app.querySelector("#endTurn").addEventListener("click", endTurn);
   app.querySelector("#newMatch").addEventListener("click", () => {
     game = null;
     localStorage.removeItem(STORAGE_KEY);
@@ -559,12 +585,16 @@ function renderGame() {
   });
   app.querySelectorAll("[data-hand]").forEach((el) => {
     el.addEventListener("click", () => {
+      if (isBotControlledTurn()) return;
       selectedHandUid = Number(el.dataset.hand);
       renderGame();
     });
   });
   app.querySelectorAll("[data-drop]").forEach((el) => {
-    el.addEventListener("click", () => playSelected(Number(el.dataset.player), Number(el.dataset.drop)));
+    el.addEventListener("click", () => {
+      if (isBotControlledTurn()) return;
+      playSelected(Number(el.dataset.player), Number(el.dataset.drop));
+    });
   });
   saveState();
   scheduleBotTurn();
@@ -581,14 +611,15 @@ function renderLocation(i) {
   const a = locationPower(0, i);
   const b = locationPower(1, i);
   const leadClass = a === b ? "tie" : a > b ? "lead-a" : "lead-b";
+  const canHumanTarget = !isBotControlledTurn();
   return `
     <section class="location ${leadClass}">
-      <div class="zone ${canPlayTo(1, i) ? "legal-target" : ""}" data-player="1" data-drop="${i}">${game.players[1].locations[i].map(renderBoardCard).join("")}</div>
+      <div class="zone ${canHumanTarget && canPlayTo(1, i) ? "legal-target" : ""}" data-player="1" data-drop="${i}">${game.players[1].locations[i].map(renderBoardCard).join("")}</div>
       <div class="loc-title">
         <strong>Lokacja ${i + 1}</strong>
         <span>${a} : ${b}</span>
       </div>
-      <div class="zone ${canPlayTo(0, i) ? "legal-target" : ""}" data-player="0" data-drop="${i}">${game.players[0].locations[i].map(renderBoardCard).join("")}</div>
+      <div class="zone ${canHumanTarget && canPlayTo(0, i) ? "legal-target" : ""}" data-player="0" data-drop="${i}">${game.players[0].locations[i].map(renderBoardCard).join("")}</div>
     </section>
   `;
 }
@@ -743,7 +774,7 @@ async function resolvePlayEffect(card, loc, actor) {
       p.deck = shuffle(p.deck);
       break;
     case 11:
-      await destroyChosen(enemy, loc, "Wybierz kartę przeciwnika z naprzeciwka.");
+      await destroyHighestPower(enemy, loc);
       break;
     case 17:
       await swapHandCards(actor, enemy);
@@ -807,10 +838,26 @@ async function resolvePlayEffect(card, loc, actor) {
   }
 }
 
-async function destroyChosen(player, loc, title, filter = () => true) {
+async function destroyChosen(player, loc, title, filter = () => true, chooserPlayer = game?.turnPlayer ?? 0) {
   const cards = collectBoardChoices(player, loc).filter(({ card }) => filter(card));
   if (!cards.length) return null;
-  const choice = await choose(title, cards.map((item) => ({ label: `${item.card.name} (L${item.loc + 1})`, value: item })), true);
+  const choice = await choose(title, cards.map((item) => ({ label: `${item.card.name} (L${item.loc + 1})`, value: item })), true, chooserPlayer);
+  if (choice) await destroyBoardCard(choice.card.uid);
+  return choice;
+}
+
+async function destroyHighestPower(player, loc) {
+  const cards = collectBoardChoices(player, loc);
+  if (!cards.length) return null;
+  const highest = Math.max(...cards.map(({ card }) => cardPower(card)));
+  const strongest = cards.filter(({ card }) => cardPower(card) === highest);
+  const choice = strongest.length === 1
+    ? strongest[0]
+    : await choose(
+        "Zabójcza Strzała: wybierz jedną z kart o najwyższej mocy.",
+        strongest.map((item) => ({ label: `${item.card.name} (${cardPower(item.card)} mocy)`, value: item })),
+        false,
+      );
   if (choice) await destroyBoardCard(choice.card.uid);
   return choice;
 }
@@ -895,18 +942,18 @@ async function discardCard(player, card) {
   p.grave.unshift(card);
 }
 
-async function discardFromHand(player, title) {
+async function discardFromHand(player, title, chooserPlayer = player) {
   const p = game.players[player];
   if (!p.hand.length) return null;
-  const card = await choose(title, p.hand.map((c) => ({ label: c.name, value: c })), true);
+  const card = await choose(title, p.hand.map((c) => ({ label: c.name, value: c })), true, chooserPlayer);
   if (card) await discardCard(player, card);
   return card;
 }
 
-async function bounceCard(player, loc, title) {
+async function bounceCard(player, loc, title, chooserPlayer = game?.turnPlayer ?? 0) {
   const choices = collectBoardChoices(player, loc);
   if (!choices.length) return;
-  const item = await choose(title, choices.map((x) => ({ label: `${x.card.name} (L${x.loc + 1})`, value: x })), true);
+  const item = await choose(title, choices.map((x) => ({ label: `${x.card.name} (L${x.loc + 1})`, value: x })), true, chooserPlayer);
   if (!item) return;
   game.players[player].locations[item.loc] = game.players[player].locations[item.loc].filter((c) => c.uid !== item.card.uid);
   item.card.controller = item.card.owner;
@@ -918,7 +965,7 @@ async function bounceAnyOwn(player) {
 }
 
 async function silenceChosen(player, loc) {
-  const item = await choose("Wycisz kartę przeciwnika.", collectBoardChoices(player, loc).map((x) => ({ label: x.card.name, value: x })), true);
+  const item = await choose("Wycisz kartę przeciwnika.", collectBoardChoices(player, loc).map((x) => ({ label: x.card.name, value: x })), true, game.turnPlayer);
   if (!item) return;
   item.card.silenced = true;
   item.card.powerMod = 0;
@@ -929,7 +976,7 @@ async function tutor(player, count) {
   const p = game.players[player];
   for (let i = 0; i < count; i++) {
     if (!p.deck.length) return;
-    const card = await choose("Dobierz kartę z talii.", p.deck.map((c) => ({ label: c.name, value: c })), false);
+    const card = await choose("Dobierz kartę z talii.", p.deck.map((c) => ({ label: c.name, value: c })), false, player);
     p.deck = p.deck.filter((c) => c.uid !== card.uid);
     p.hand.push(card);
   }
@@ -938,15 +985,15 @@ async function tutor(player, count) {
 async function treacherousWish(player) {
   const p = game.players[player];
   if (!p.deck.length) return;
-  const first = await choose("Zdradliwe życzenie: wybierz pierwszą kartę.", p.deck.map((c) => ({ label: c.name, value: c })), false);
+  const first = await choose("Zdradliwe życzenie: wybierz pierwszą kartę.", p.deck.map((c) => ({ label: c.name, value: c })), false, player);
   p.deck = p.deck.filter((c) => c.uid !== first.uid);
   if (!p.deck.length) {
     p.hand.push(first);
     return;
   }
-  const second = await choose("Zdradliwe życzenie: wybierz drugą kartę.", p.deck.map((c) => ({ label: c.name, value: c })), false);
+  const second = await choose("Zdradliwe życzenie: wybierz drugą kartę.", p.deck.map((c) => ({ label: c.name, value: c })), false, player);
   p.deck = p.deck.filter((c) => c.uid !== second.uid);
-  const keep = await choose("Którą kartę zachować?", [first, second].map((c) => ({ label: c.name, value: c })), false);
+  const keep = await choose("Którą kartę zachować?", [first, second].map((c) => ({ label: c.name, value: c })), false, player);
   const discard = keep.uid === first.uid ? second : first;
   p.hand.push(keep);
   await discardCard(player, discard);
@@ -954,8 +1001,8 @@ async function treacherousWish(player) {
 
 async function swapHandCards(a, b) {
   if (!game.players[a].hand.length || !game.players[b].hand.length) return;
-  const ca = await choose(`${playerName(a)} wybiera kartę do wymiany.`, game.players[a].hand.map((c) => ({ label: c.name, value: c })), false);
-  const cb = await choose(`${playerName(b)} wybiera kartę do wymiany.`, game.players[b].hand.map((c) => ({ label: c.name, value: c })), false);
+  const ca = await choose(`${playerName(a)} wybiera kartę do wymiany.`, game.players[a].hand.map((c) => ({ label: c.name, value: c })), false, a);
+  const cb = await choose(`${playerName(b)} wybiera kartę do wymiany.`, game.players[b].hand.map((c) => ({ label: c.name, value: c })), false, b);
   game.players[a].hand = game.players[a].hand.filter((c) => c.uid !== ca.uid);
   game.players[b].hand = game.players[b].hand.filter((c) => c.uid !== cb.uid);
   ca.owner = b;
@@ -967,7 +1014,7 @@ async function swapHandCards(a, b) {
 async function repeatPlay(player, loc, sourceUid) {
   const choices = game.players[player].locations[loc].filter((c) => c.uid !== sourceUid && !c.silenced && c.tags.includes("play"));
   if (!choices.length) return;
-  const card = await choose("Miś Zwiadowca: wybierz Zagranie do powtórzenia.", choices.map((c) => ({ label: c.name, value: c })), true);
+  const card = await choose("Miś Zwiadowca: wybierz Zagranie do powtórzenia.", choices.map((c) => ({ label: c.name, value: c })), true, player);
   if (card) await resolvePlayEffect(card, loc, player);
 }
 
@@ -977,14 +1024,14 @@ async function observer(actor, enemy) {
   const action = await choose(`Górna karta przeciwnika: ${top.name}`, [
     { label: "Zostaw na górze", value: "top" },
     { label: "Przełóż na spód", value: "bottom" },
-  ], false);
+  ], false, actor);
   if (action === "bottom") game.players[enemy].deck.push(game.players[enemy].deck.shift());
 }
 
 async function triggerDestroyAbility(player, loc) {
   const choices = game.players[player].locations[loc].filter((c) => c.tags.includes("destroy") && !c.silenced);
   if (!choices.length) return;
-  const card = await choose("Aktywuj Zniszczenie swojej karty.", choices.map((c) => ({ label: c.name, value: c })), true);
+  const card = await choose("Aktywuj Zniszczenie swojej karty.", choices.map((c) => ({ label: c.name, value: c })), true, player);
   if (card) await resolveDestroyEffect(card, loc, player);
 }
 
@@ -1015,16 +1062,16 @@ function collectBoardChoices(player, loc) {
   return result;
 }
 
-function chooseLocation(player, title) {
+function chooseLocation(player, title, chooserPlayer = player) {
   const choices = [0, 1, 2]
     .filter((loc) => hasSpace(player, loc, { defId: 0 }))
     .map((loc) => ({ label: `Lokacja ${loc + 1}`, value: loc }));
-  return choose(title, choices, true);
+  return choose(title, choices, true, chooserPlayer);
 }
 
-function choose(title, choices, allowCancel) {
+function choose(title, choices, allowCancel, chooserPlayer = game?.turnPlayer ?? 0) {
   return new Promise((resolve) => {
-    if (botActing) {
+    if (game?.botEnabled && chooserPlayer === BOT_PLAYER) {
       resolve(choices[0]?.value ?? null);
       return;
     }
@@ -1173,6 +1220,7 @@ async function finishRound() {
     game.scores[winner]++;
     log(`${playerName(winner)} wygrywa partię ${game.matchRound}.`);
   }
+  await showRoundSummary(winner, powersA, powersB);
   if (game.scores[0] >= 3 || game.scores[1] >= 3 || game.matchRound >= 4) {
     showMatchEnd();
     return;
@@ -1180,6 +1228,38 @@ async function finishRound() {
   await promoteExtraCards();
   game.matchRound++;
   startRound();
+}
+
+function showRoundSummary(winner, powersA, powersB) {
+  return new Promise((resolve) => {
+    const result = winner === null ? "Remis w partii" : `${playerName(winner)} wygrywa partię`;
+    modal.classList.remove("hidden");
+    modal.innerHTML = `
+      <div class="dialog round-summary">
+        <h2>Końcowy stan stołu</h2>
+        <p class="meta">Partia ${game.matchRound}: ${result}. Wynik meczu ${game.scores[0]} - ${game.scores[1]}.</p>
+        <div class="scorebar">
+          ${[0, 1, 2].map((loc) => `
+            <div class="scorebox">
+              <strong>Lokacja ${loc + 1}</strong>
+              <span>A ${powersA[loc]} : ${powersB[loc]} B</span>
+              <span class="meta">${powersA[loc] === powersB[loc] ? "remis" : powersA[loc] > powersB[loc] ? "prowadzi A" : "prowadzi B"}</span>
+            </div>
+          `).join("")}
+        </div>
+        <div class="battlefield summary-board">
+          ${[0, 1, 2].map((loc) => renderLocation(loc)).join("")}
+        </div>
+        <div class="actions">
+          <button id="continueAfterRound" class="primary">Dalej</button>
+        </div>
+      </div>
+    `;
+    modal.querySelector("#continueAfterRound").addEventListener("click", () => {
+      modal.classList.add("hidden");
+      resolve();
+    });
+  });
 }
 
 async function promoteExtraCards() {
@@ -1199,7 +1279,7 @@ async function promoteExtraCards() {
       selected = await choose(`Przed partią ${nextRound}: ${playerName(player)} wybiera kartę dodatkową.`, options.map((card) => ({
         label: `${card.name} · próg ${card.threshold}, moc ${card.power}`,
         value: card,
-      })), false);
+      })), false, player);
       botActing = wasBotActing;
     }
     if (!selected) continue;
@@ -1249,6 +1329,7 @@ function saveState() {
   const payload = {
     uid,
     selectedBuilderPlayer,
+    botEnabledDraft,
     builderFilters,
     deckDraft: serializeDeckDraft(),
     game,
@@ -1264,6 +1345,7 @@ function restoreState() {
     const state = JSON.parse(raw);
     uid = state.uid || 1;
     selectedBuilderPlayer = state.selectedBuilderPlayer || 0;
+    botEnabledDraft = state.botEnabledDraft ?? true;
     selectedHandUid = state.selectedHandUid || null;
     builderFilters = { ...builderFilters, ...(state.builderFilters || {}) };
     if (Array.isArray(state.deckDraft)) {
