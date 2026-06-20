@@ -242,6 +242,94 @@ function cardsFromSet(set) {
   return [...set].map((id) => CARDS.find((card) => card.id === id)).filter(Boolean);
 }
 
+function renderMenu() {
+  app.innerHTML = `
+    <section class="screen menu-screen">
+      <div class="menu-shell">
+        <div class="menu-title">
+          <span class="meta">Prototyp lokalnej gry 1v1</span>
+          <h1>Gra karciana wersja 1.0</h1>
+          <p>Buduj talie, walcz o przewagę w trzech lokacjach i korzystaj z efektów kart we właściwym momencie.</p>
+        </div>
+        <nav class="menu-actions" aria-label="Menu główne">
+          <button id="menuPlay" class="primary">Rozgrywka</button>
+          <button id="menuRules">Instrukcja</button>
+          <button id="menuCredits">Creditsy</button>
+        </nav>
+      </div>
+    </section>
+  `;
+  app.querySelector("#menuPlay").addEventListener("click", renderBuilder);
+  app.querySelector("#menuRules").addEventListener("click", renderInstructions);
+  app.querySelector("#menuCredits").addEventListener("click", renderCredits);
+}
+
+function renderInstructions() {
+  app.innerHTML = `
+    <section class="screen">
+      <div class="topbar">
+        <div class="brand">
+          <h1>Instrukcja</h1>
+          <span>Zasady rozgrywki w skrócie</span>
+        </div>
+        <button class="backMenu">Menu główne</button>
+      </div>
+      <section class="rules-grid">
+        <article class="panel rule-panel">
+          <h2>Cel gry</h2>
+          <p>Gracze rywalizują w trzech lokacjach. Na koniec partii porównywana jest moc w każdej lokacji. Wygrywa ten, kto prowadzi w większej liczbie lokacji.</p>
+        </article>
+        <article class="panel rule-panel">
+          <h2>Tury i progi</h2>
+          <p>Partia trwa do 6 tur. Karta może zostać zagrana, gdy aktualna tura jest równa lub wyższa od jej progu. Niektóre efekty obniżają próg albo dają dodatkowe zagrania.</p>
+        </article>
+        <article class="panel rule-panel">
+          <h2>Lokacje</h2>
+          <p>Każda strona lokacji ma ograniczoną liczbę miejsc. Karty dokładają moc do swojej strony, a część z nich wzmacnia, osłabia, niszczy lub cofa inne karty.</p>
+        </article>
+        <article class="panel rule-panel">
+          <h2>Efekty kart</h2>
+          <p>Zagranie działa po wyłożeniu karty. Pasywka działa, gdy karta jest na stole. Zniszczenie uruchamia się przy zniszczeniu. Odrzucenie działa, gdy karta zostanie odrzucona z ręki.</p>
+        </article>
+        <article class="panel rule-panel">
+          <h2>Mecz</h2>
+          <p>Po partii zwycięzca dostaje punkt. Przed kolejną partią gracze mogą dodać kartę z talii dodatkowej. Mecz kończy się po osiągnięciu warunku zwycięstwa albo po ostatniej partii.</p>
+        </article>
+        <article class="panel rule-panel">
+          <h2>Bot</h2>
+          <p>Bot może grać jako Gracz B. W czasie jego tury wykonuje legalne akcje automatycznie, ale wybory należące do Gracza A nadal pojawiają się w oknach wyboru.</p>
+        </article>
+      </section>
+    </section>
+  `;
+  app.querySelector(".backMenu").addEventListener("click", renderMenu);
+}
+
+function renderCredits() {
+  app.innerHTML = `
+    <section class="screen">
+      <div class="topbar">
+        <div class="brand">
+          <h1>Creditsy</h1>
+          <span>Autorzy gry</span>
+        </div>
+        <button class="backMenu">Menu główne</button>
+      </div>
+      <section class="credits-panel panel">
+        <div>
+          <span class="meta">Game Master</span>
+          <h2>Rafał Kozioł</h2>
+        </div>
+        <div>
+          <span class="meta">Programista</span>
+          <h2>Jakub Bieńkowski</h2>
+        </div>
+      </section>
+    </section>
+  `;
+  app.querySelector(".backMenu").addEventListener("click", renderMenu);
+}
+
 function renderBuilder() {
   const p = deckDraft[selectedBuilderPlayer];
   const validA = deckDraft[0].main.size === 12 && deckDraft[0].extra.size === 3;
@@ -255,6 +343,7 @@ function renderBuilder() {
           <span>Prototyp lokalnej gry 1v1</span>
         </div>
         <div class="actions">
+          <button id="mainMenu">Menu</button>
           <button id="quickMatch">Szybki mecz</button>
           <button id="startGame" class="primary" ${validA && validB ? "" : "disabled"}>Rozpocznij mecz</button>
         </div>
@@ -314,6 +403,7 @@ function renderBuilder() {
       </div>
     </section>
   `;
+  app.querySelector("#mainMenu").addEventListener("click", renderMenu);
   app.querySelectorAll("[data-player]").forEach((btn) => {
     btn.addEventListener("click", () => {
       selectedBuilderPlayer = Number(btn.dataset.player);
@@ -1390,7 +1480,10 @@ function showMatchEnd() {
           <h1>${result}</h1>
           <span>Wynik: ${game.scores[0]} - ${game.scores[1]}</span>
         </div>
-        <button id="backBuilder">Wróć do budowania talii</button>
+        <div class="actions">
+          <button id="backMenu">Menu główne</button>
+          <button id="backBuilder">Wróć do budowania talii</button>
+        </div>
       </div>
       <section class="panel">
         <h2>Dziennik meczu</h2>
@@ -1398,6 +1491,7 @@ function showMatchEnd() {
       </section>
     </section>
   `;
+  app.querySelector("#backMenu").addEventListener("click", renderMenu);
   app.querySelector("#backBuilder").addEventListener("click", renderBuilder);
 }
 
@@ -1454,4 +1548,4 @@ function restoreState() {
 }
 
 if (restoreState() && game) renderGame();
-else renderBuilder();
+else renderMenu();
