@@ -6,10 +6,26 @@ import {
   chooseBotTarget,
 } from './src/bot.js';
 import {
+  advanceTurnState,
+  appendGameLog,
+  beginTurnState,
+  createMatchState,
+  drawCardState,
+  ensureReplayState,
+  matchResultText,
+  placeCardFromHandState,
+  promoteExtraCardState,
+  recordGameAction,
+  resolveRoundState,
+  shouldFinishMatch,
+  startRoundState,
+  trimReplay,
+} from './src/game-engine.js';
+import { createMultiplayerClient } from './src/multiplayer-client.js';
+import {
   BOT_PLAYER,
   cardImagePath,
   createCardInstance,
-  evaluateRoundWinner,
   filterAndSortCards,
   hasSpaceForCard,
   moveCardToPrivateZone,
@@ -29,6 +45,8 @@ let selectedBuilderPlayer = 0;
 let botEnabledDraft = true;
 let selectedHandUid = null;
 let game = null;
+let onlineMode = false;
+let pendingOnlineCreate = false;
 let botActing = false;
 let botTurnQueued = false;
 let musicEnabled = true;
@@ -51,6 +69,27 @@ const deckDraft = [
   { main: new Set(), extra: new Set() },
   { main: new Set(), extra: new Set() },
 ];
+
+const multiplayer = createMultiplayerClient({
+  getState: () => game,
+  setState: (state) => {
+    game = state;
+    selectedHandUid = null;
+    onlineMode = Boolean(multiplayer.roomId);
+    if (game?.screen === "game") renderGame();
+    else if (game?.screen === "matchEnd") showMatchEnd(false);
+  },
+  onEvent: () => {
+    if (pendingOnlineCreate && multiplayer.roomId && multiplayer.player === 0) {
+      pendingOnlineCreate = false;
+      startMatch({ online: true, botEnabled: false });
+      multiplayer.publishState({ type: "initial_state" });
+      return;
+    }
+    if (onlineMode && !game) renderOnline();
+    else if (game?.screen === "game") renderGame();
+  },
+});
 
 function cloneDef(def, owner) {
   return createCardInstance(def, owner, uid++);
@@ -113,6 +152,7 @@ function renderMenu() {
         </div>
         <nav class="menu-actions" aria-label="Menu główne">
           <button id="menuPlay" class="primary">Rozgrywka</button>
+          <button id="menuOnline">Online</button>
           <button id="menuRules">Instrukcja</button>
           <button id="menuCredits">Creditsy</button>
         </nav>
@@ -120,8 +160,56 @@ function renderMenu() {
     </section>
   `;
   app.querySelector("#menuPlay").addEventListener("click", renderBuilder);
+  app.querySelector("#menuOnline").addEventListener("click", renderOnline);
   app.querySelector("#menuRules").addEventListener("click", renderInstructions);
   app.querySelector("#menuCredits").addEventListener("click", renderCredits);
+}
+
+function renderOnline() {
+  stopMusic();
+  onlineMode = true;
+  app.innerHTML = `
+    <section class="screen">
+      <div class="topbar">
+        <div class="brand">
+          <h1>Online</h1>
+          <span>Gra przez lokalny serwer i Cloudflare Quick Tunnel</span>
+        </div>
+        <button class="backMenu">Menu główne</button>
+      </div>
+      <section class="online-layout">
+        <article class="panel">
+          <h2>Utwórz pokój</h2>
+          <p class="hint">Utworzenie pokoju uruchomi szybki mecz z taliami testowymi. Ty grasz jako Gracz A, kolega dołącza jako Gracz B.</p>
+          <button id="createRoom" class="primary">Utwórz pokój</button>
+          ${multiplayer.roomId ? `<p>Kod pokoju: <strong>${multiplayer.roomId}</strong></p>` : ""}
+        </article>
+        <article class="panel">
+          <h2>Dołącz</h2>
+          <label>
+            Kod pokoju
+            <input id="roomCode" maxlength="8" autocomplete="off" placeholder="np. A1B2C3" />
+          </label>
+          <button id="joinRoom">Dołącz do pokoju</button>
+        </article>
+        <article class="panel">
+          <h2>Status</h2>
+          <p>${multiplayer.connected ? "Połączono z serwerem." : "Brak połączenia z serwerem multiplayer."}</p>
+          ${multiplayer.lastError ? `<p class="danger">${escapeHtml(multiplayer.lastError)}</p>` : ""}
+          <p class="hint">Do gry z internetu uruchom serwer przez npm.cmd start, a potem tunel Cloudflare.</p>
+        </article>
+      </section>
+    </section>
+  `;
+  app.querySelector(".backMenu").addEventListener("click", () => {
+    onlineMode = false;
+    renderMenu();
+  });
+  app.querySelector("#createRoom").addEventListener("click", createOnlineRoom);
+  app.querySelector("#joinRoom").addEventListener("click", () => {
+    const roomId = app.querySelector("#roomCode").value.trim().toUpperCase();
+    if (roomId) multiplayer.joinRoom(roomId);
+  });
 }
 
 function renderInstructions() {
@@ -501,83 +589,47 @@ function makeSampleDecks(startImmediately = false) {
   renderBuilder();
 }
 
-function startMatch() {
+function createOnlineRoom() {
+  makeSampleDecks(false);
+  botEnabledDraft = false;
+  pendingOnlineCreate = true;
+  multiplayer.createRoom();
+}
+
+function startMatch(options = {}) {
   localStorage.removeItem(STORAGE_KEY);
-  const botEnabled = app.querySelector("#botToggle")?.checked ?? botEnabledDraft;
+  onlineMode = Boolean(options.online || onlineMode);
+  const botEnabled = options.botEnabled ?? app.querySelector("#botToggle")?.checked ?? botEnabledDraft;
   botEnabledDraft = botEnabled;
-  game = {
-    screen: "game",
-    matchRound: 1,
-    roundTurn: 0,
-    turnPlayer: Math.random() < 0.5 ? 0 : 1,
-    starter: 0,
-    roundStarter: 0,
-    scores: [0, 0],
-    logs: [],
+  game = createMatchState({
     botEnabled,
-    players: [createMatchPlayer(0), createMatchPlayer(1)],
-  };
-  game.starter = game.turnPlayer;
+    deckDraft,
+    starter: Math.random() < 0.5 ? 0 : 1,
+  });
+  recordGameAction(game, { type: "start_match", starter: game.starter, botEnabled });
   startMusic();
   startRound();
 }
 
-function createMatchPlayer(index) {
-  return {
-    mainIds: [...deckDraft[index].main],
-    extraPool: [...deckDraft[index].extra],
-    deck: [],
-    hand: [],
-    grave: [],
-    locations: [[], [], []],
-    locBonus: [0, 0, 0],
-    playsLeft: 1,
-    nextTurnExtra: 0,
-    nextThresholdBonus: 0,
-    destroyedThisTurn: 0,
-    servantUsed: false,
-    flamethrowerUsed: false,
-    drawsThisTurn: 0,
-  };
-}
-
 function startRound() {
   selectedHandUid = null;
-  game.roundTurn = 1;
-  game.turnPlayer = game.matchRound === 1 ? game.starter : opponent(game.starter);
-  if (game.matchRound % 2 === 1) game.turnPlayer = game.starter;
-  else game.turnPlayer = opponent(game.starter);
-  game.roundStarter = game.turnPlayer;
-  game.players.forEach((p, index) => {
-    const activeIds = [...p.mainIds];
-    p.deck = shuffle(activeIds.map((id) => cloneDef(CARDS.find((c) => c.id === id), index)));
-    p.hand = [];
-    p.grave = [];
-    p.locations = [[], [], []];
-    p.locBonus = [0, 0, 0];
-    p.playsLeft = 1;
-    p.nextTurnExtra = 0;
-    p.nextThresholdBonus = 0;
-    for (let i = 0; i < 3; i++) drawCard(index, false);
+  const cardsById = new Map(CARDS.map((card) => [card.id, card]));
+  startRoundState(game, {
+    cardsById,
+    cloneCard: cloneDef,
+    drawCard,
   });
   log(`Partia ${game.matchRound}. Zaczyna ${playerName(game.turnPlayer)}.`);
   beginTurn();
 }
 
 function beginTurn() {
-  const p = game.players[game.turnPlayer];
   selectedHandUid = null;
-  p.playsLeft = 1 + p.nextTurnExtra;
-  p.nextTurnExtra = 0;
-  p.destroyedThisTurn = 0;
-  p.servantUsed = false;
-  p.flamethrowerUsed = false;
-  p.drawsThisTurn = 0;
+  beginTurnState(game);
   drawCard(game.turnPlayer, true);
   if (isBotControlledTurn()) scheduleBotTurn(0);
   renderGame();
 }
-
 function currentHandCard() {
   if (!game || !selectedHandUid) return null;
   return game.players[game.turnPlayer].hand.find((card) => card.uid === selectedHandUid) || null;
@@ -591,6 +643,14 @@ function canPlayTo(targetPlayer, loc, card = currentHandCard()) {
 
 function isBotControlledTurn() {
   return Boolean(game?.screen === "game" && game.botEnabled && game.turnPlayer === BOT_PLAYER);
+}
+
+function isRemoteControlledTurn() {
+  return Boolean(onlineMode && game?.screen === "game" && !multiplayer.canControl(game.turnPlayer));
+}
+
+function publishOnlineState(action) {
+  if (onlineMode && multiplayer.roomId) multiplayer.publishState(action);
 }
 
 function playPreview() {
@@ -614,13 +674,10 @@ function playPreview() {
 
 function drawCard(player, countForTurn = true) {
   const p = game.players[player];
-  if (!p.deck.length) return null;
-  const card = p.deck.shift();
-  moveCardToPrivateZone(card, player);
-  p.hand.push(card);
+  const card = drawCardState(game, player, { countForTurn });
+  if (!card) return null;
   if (countForTurn) triggerEffect("draw", { player });
   if (countForTurn) {
-    p.drawsThisTurn++;
     if (p.drawsThisTurn === 2 && hasOnBoard(player, 6)) {
       p.playsLeft++;
       log(`${playerName(player)} aktywuje Pomnik Wielkiej Królowej: dodatkowe zagranie.`);
@@ -629,21 +686,29 @@ function drawCard(player, countForTurn = true) {
   return card;
 }
 
-function log(text) {
-  game.logs.unshift(text);
-  game.logs = game.logs.slice(0, 80);
+function log(text, action = null) {
+  appendGameLog(game, text, action);
+  trimReplay(game);
+}
+
+function renderReplayLog(limit = 12) {
+  const entries = [...(game.actions || [])].slice(-limit).reverse();
+  if (!entries.length) return "<p class='hint'>Brak zapisanych akcji.</p>";
+  return `<div class="log replay-log">${entries.map((entry) => `<code>${escapeHtml(JSON.stringify(entry))}</code>`).join("")}</div>`;
 }
 
 function renderGame() {
   const tp = game.players[game.turnPlayer];
   const playsLeft = tp.playsLeft;
   const botTurn = isBotControlledTurn();
+  const remoteTurn = isRemoteControlledTurn();
   app.innerHTML = `
     <section class="screen">
       <div class="topbar gamebar">
         <div class="brand">
           <h1>Gra karciana wersja 1.0</h1>
           <span>Partia ${game.matchRound}/4, tura ${game.roundTurn}/6, ruch: ${playerName(game.turnPlayer)}</span>
+          ${onlineMode ? `<span>Online: pokój ${multiplayer.roomId || "-"}, grasz jako ${playerName(multiplayer.player ?? 0)}</span>` : ""}
         </div>
         <div class="turn-strip">
           <span>Zagrania <strong>${playsLeft}</strong></span>
@@ -653,7 +718,7 @@ function renderGame() {
         <div class="actions">
           <button id="toggleMusic">${musicEnabled ? "Muzyka: wł." : "Muzyka: wył."}</button>
           <button id="toggleSfx">${sfxEnabled ? "Dźwięki: wł." : "Dźwięki: wył."}</button>
-          <button id="endTurn" class="primary" ${botTurn ? "disabled" : ""}>Zakończ turę</button>
+          <button id="endTurn" class="primary" ${botTurn || remoteTurn ? "disabled" : ""}>Zakończ turę</button>
           <button id="newMatch">Nowy mecz</button>
         </div>
       </div>
@@ -668,6 +733,7 @@ function renderGame() {
           <section class="panel">
             <h2>Ręka: ${playerName(game.turnPlayer)} <span class="meta">Zagrania: ${playsLeft}, talia: ${tp.deck.length}, cmentarz: ${tp.grave.length}</span></h2>
             ${botTurn ? "<p class='hint'>Bot wykonuje turę. Poczekaj na rozpatrzenie akcji.</p>" : ""}
+            ${remoteTurn ? "<p class='hint'>Ruch przeciwnika online. Poczekaj na synchronizację.</p>" : ""}
             <div class="hand ${fxClass("hands", game.turnPlayer)}">${tp.hand.map((card) => renderHandCard(card)).join("") || "<p class='hint'>Brak kart na ręce.</p>"}</div>
           </section>
         </div>
@@ -690,15 +756,20 @@ function renderGame() {
             <h3>Dziennik</h3>
             <div class="log">${game.logs.map((entry) => `<span>${entry}</span>`).join("")}</div>
           </section>
+          <section class="panel">
+            <h3>Replay</h3>
+            ${renderReplayLog()}
+          </section>
         </aside>
       </div>
     </section>
   `;
   app.querySelector("#toggleMusic").addEventListener("click", toggleMusic);
   app.querySelector("#toggleSfx").addEventListener("click", toggleSfx);
-  if (!botTurn) app.querySelector("#endTurn").addEventListener("click", endTurn);
+  if (!botTurn && !remoteTurn) app.querySelector("#endTurn").addEventListener("click", endTurn);
   app.querySelector("#newMatch").addEventListener("click", () => {
     game = null;
+    onlineMode = false;
     localStorage.removeItem(STORAGE_KEY);
     stopMusic();
     renderBuilder();
@@ -706,6 +777,7 @@ function renderGame() {
   app.querySelectorAll("[data-hand]").forEach((el) => {
     el.addEventListener("click", () => {
       if (isBotControlledTurn()) return;
+      if (isRemoteControlledTurn()) return;
       selectedHandUid = Number(el.dataset.hand);
       renderGame();
     });
@@ -713,6 +785,7 @@ function renderGame() {
   app.querySelectorAll("[data-drop]").forEach((el) => {
     el.addEventListener("click", () => {
       if (isBotControlledTurn()) return;
+      if (isRemoteControlledTurn()) return;
       playSelected(Number(el.dataset.player), Number(el.dataset.drop));
     });
   });
@@ -821,6 +894,7 @@ function canPlayCard(player, card) {
 }
 
 async function playSelected(targetPlayer, loc) {
+  if (isRemoteControlledTurn()) return;
   if (!selectedHandUid) return;
   const player = game.turnPlayer;
   const card = game.players[player].hand.find((c) => c.uid === selectedHandUid);
@@ -836,12 +910,8 @@ async function playCardFromHand(player, card, targetPlayer, loc) {
     return;
   }
   const lowered = displayThreshold(player, card) < card.baseThreshold;
-  p.hand = p.hand.filter((c) => c.uid !== card.uid);
-  card.owner = targetPlayer;
-  card.controller = targetPlayer;
-  game.players[targetPlayer].locations[loc].push(card);
+  placeCardFromHandState(game, { player, card, targetPlayer, loc, lowered });
   triggerEffect("play", { cardUid: card.uid, player: targetPlayer, loc });
-  p.playsLeft--;
   selectedHandUid = null;
   log(`${playerName(player)} zagrywa ${card.name} do lokacji ${loc + 1}.`);
   if (lowered && hasOnBoard(player, 35) && !p.flamethrowerUsed) {
@@ -849,9 +919,15 @@ async function playCardFromHand(player, card, targetPlayer, loc) {
     p.flamethrowerUsed = true;
     log("Miotacz ognia daje dodatkowe zagranie.");
   }
-  if (p.nextThresholdBonus) p.nextThresholdBonus = 0;
   await resolvePlayEffect(card, loc, player);
   renderGame();
+  publishOnlineState({
+    type: "play_card",
+    player,
+    cardUid: card.uid,
+    targetPlayer,
+    loc,
+  });
 }
 
 function hasSpace(player, loc, card) {
@@ -1271,16 +1347,17 @@ function cardPowerForChoice(card) {
 }
 
 async function endTurn() {
+  if (isRemoteControlledTurn()) return;
   if (game?.screen !== "game") return;
   triggerEffect("turn", {});
   await resolveEndTurnPassives(game.turnPlayer);
-  if (game.turnPlayer === opponent(game.roundStarter)) game.roundTurn++;
-  if (game.roundTurn > 6) {
+  const result = advanceTurnState(game);
+  if (result.roundFinished) {
     await finishRound();
     return;
   }
-  game.turnPlayer = opponent(game.turnPlayer);
   beginTurn();
+  publishOnlineState({ type: "end_turn" });
 }
 
 async function resolveEndTurnPassives(player) {
@@ -1369,44 +1446,23 @@ function wait(ms) {
 }
 
 async function finishRound() {
-  const powersA = [0, 1, 2].map((loc) => locationPower(0, loc));
-  const powersB = [0, 1, 2].map((loc) => locationPower(1, loc));
-  let winsA = 0;
-  let winsB = 0;
-  powersA.forEach((power, loc) => {
-    if (power > powersB[loc]) winsA++;
-    if (power < powersB[loc]) winsB++;
-  });
-  let winner = null;
-  if (winsA > winsB) winner = 0;
-  else if (winsB > winsA) winner = 1;
-  else {
-    const totalA = powersA.reduce((a, b) => a + b, 0);
-    const totalB = powersB.reduce((a, b) => a + b, 0);
-    if (totalA > totalB) winner = 0;
-    else if (totalB > totalA) winner = 1;
-    else {
-      const cardsA = allBoardCards(0).length;
-      const cardsB = allBoardCards(1).length;
-      if (cardsA < cardsB) winner = 0;
-      else if (cardsB < cardsA) winner = 1;
-    }
-  }
+  const { winner, powersA, powersB } = resolveRoundState(game, { locationPower, allBoardCards });
   if (winner === null) {
     log("Partia zakończona remisem. Powtarzamy bez punktu.");
   } else {
-    game.scores[winner]++;
     log(`${playerName(winner)} wygrywa partię ${game.matchRound}.`);
     triggerEffect("win", {});
   }
   await showRoundSummary(winner, powersA, powersB);
-  if (game.scores[0] >= 3 || game.scores[1] >= 3 || game.matchRound >= 4) {
+  if (shouldFinishMatch(game)) {
     showMatchEnd();
+    publishOnlineState({ type: "finish_match" });
     return;
   }
   await promoteExtraCards();
   game.matchRound++;
   startRound();
+  publishOnlineState({ type: "finish_round" });
 }
 
 function showRoundSummary(winner, powersA, powersB) {
@@ -1462,8 +1518,7 @@ async function promoteExtraCards() {
       botActing = wasBotActing;
     }
     if (!selected) continue;
-    p.extraPool = p.extraPool.filter((id) => id !== selected.id);
-    p.mainIds.push(selected.id);
+    promoteExtraCardState(game, player, selected);
     log(`${playerName(player)} dodaje ${selected.name} do talii podstawowej.`);
   }
 }
@@ -1472,10 +1527,11 @@ function chooseBotExtra(options) {
   return chooseBestBotExtra(options);
 }
 
-function showMatchEnd() {
+function showMatchEnd(recordAction = true) {
   game.screen = "matchEnd";
   botTurnQueued = false;
-  const result = game.scores[0] === game.scores[1] ? "Mecz kończy się remisem." : `${playerName(game.scores[0] > game.scores[1] ? 0 : 1)} wygrywa mecz.`;
+  const result = matchResultText(game);
+  if (recordAction) recordGameAction(game, { type: "finish_match", scores: [...game.scores], result });
   localStorage.removeItem(STORAGE_KEY);
   stopMusic();
   app.innerHTML = `
@@ -1493,6 +1549,10 @@ function showMatchEnd() {
       <section class="panel">
         <h2>Dziennik meczu</h2>
         <div class="log">${game.logs.map((entry) => `<span>${entry}</span>`).join("")}</div>
+      </section>
+      <section class="panel">
+        <h2>Replay akcji</h2>
+        ${renderReplayLog(40)}
       </section>
     </section>
   `;
@@ -1535,6 +1595,7 @@ function restoreState() {
     }
     game = state.game || null;
     if (game) {
+      ensureReplayState(game);
       game.roundStarter ??= game.turnPlayer ?? game.starter ?? 0;
       game.botEnabled ??= true;
       game.players?.forEach((player, index) => {

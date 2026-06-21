@@ -681,6 +681,18 @@ label {
   gap: 12px;
 }
 
+.online-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.online-layout .panel {
+  display: grid;
+  gap: 10px;
+}
+
 .rule-panel {
   display: grid;
   gap: 8px;
@@ -733,6 +745,18 @@ label {
   flex-direction: column;
   gap: 7px;
   font-size: 0.84rem;
+}
+
+.replay-log code {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #d7d9df;
+  background: rgba(18, 21, 28, 0.68);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px;
+  line-height: 1.35;
 }
 
 .modal {

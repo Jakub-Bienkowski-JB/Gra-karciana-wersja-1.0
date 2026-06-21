@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "assets:optimize": "powershell -ExecutionPolicy Bypass -File scripts/optimize-images.ps1",
+    "start": "node server/index.js",
+    "server": "node server/index.js",
     "test": "node --test",
-    "check": "node --check app.js"
+    "check": "node --check app.js && node --check server/index.js"
   }
 }
